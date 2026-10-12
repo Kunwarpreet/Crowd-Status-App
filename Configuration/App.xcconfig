@@ -1,0 +1,2 @@
+// Optional local credentials, shared by Debug and Release.
+#include? "Secrets.xcconfig"

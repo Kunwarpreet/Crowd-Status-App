@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A10000000000000000000007 /* MarketAddresses.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* MarketAddresses.swift */; };
+		A10000000000000000000006 /* MarketOpeningHours.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* MarketOpeningHours.swift */; };
 		A10000000000000000000001 /* CrowdStatusApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* CrowdStatusApp.swift */; };
 		A10000000000000000000002 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* HomeView.swift */; };
 		A10000000000000000000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* Assets.xcassets */; };
@@ -15,6 +17,9 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A20000000000000000000009 /* MarketAddresses.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketAddresses.swift; sourceTree = "<group>"; };
+		A20000000000000000000008 /* App.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configuration/App.xcconfig; sourceTree = SOURCE_ROOT; };
+		A20000000000000000000007 /* MarketOpeningHours.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketOpeningHours.swift; sourceTree = "<group>"; };
 		A20000000000000000000001 /* CrowdStatusApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrowdStatusApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		A20000000000000000000003 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -90,6 +95,8 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000002 /* HomeView.swift */,
+				A20000000000000000000007 /* MarketOpeningHours.swift */,
+				A20000000000000000000009 /* MarketAddresses.swift */,
 			);
 			path = Home;
 			sourceTree = "<group>";
@@ -164,6 +171,8 @@
 			files = (
 				A10000000000000000000001 /* CrowdStatusApp.swift in Sources */,
 				A10000000000000000000002 /* HomeView.swift in Sources */,
+				A10000000000000000000006 /* MarketOpeningHours.swift in Sources */,
+				A10000000000000000000007 /* MarketAddresses.swift in Sources */,
 				A10000000000000000000004 /* AppRootView.swift in Sources */,
 				A10000000000000000000005 /* AppTheme.swift in Sources */,
 			);
@@ -285,12 +294,14 @@
 		};
 		A80000000000000000000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A20000000000000000000008 /* App.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = K6MMYBFA8C;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Configuration/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Crowd Status";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -308,12 +319,14 @@
 		};
 		A80000000000000000000004 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A20000000000000000000008 /* App.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = K6MMYBFA8C;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Configuration/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Crowd Status";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
