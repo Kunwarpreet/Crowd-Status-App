@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A10000000000000000000012 /* MarketCrowdData.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* MarketCrowdData.swift */; };
+		A10000000000000000000011 /* MarketDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* MarketDiscovery.swift */; };
+		A10000000000000000000008 /* LowCrowdNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* LowCrowdNotification.swift */; };
 		A10000000000000000000007 /* MarketAddresses.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* MarketAddresses.swift */; };
 		A10000000000000000000006 /* MarketOpeningHours.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* MarketOpeningHours.swift */; };
 		A10000000000000000000001 /* CrowdStatusApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* CrowdStatusApp.swift */; };
@@ -17,6 +20,9 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A20000000000000000000012 /* MarketCrowdData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketCrowdData.swift; sourceTree = "<group>"; };
+		A20000000000000000000011 /* MarketDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketDiscovery.swift; sourceTree = "<group>"; };
+		A20000000000000000000010 /* LowCrowdNotification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LowCrowdNotification.swift; sourceTree = "<group>"; };
 		A20000000000000000000009 /* MarketAddresses.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketAddresses.swift; sourceTree = "<group>"; };
 		A20000000000000000000008 /* App.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configuration/App.xcconfig; sourceTree = SOURCE_ROOT; };
 		A20000000000000000000007 /* MarketOpeningHours.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketOpeningHours.swift; sourceTree = "<group>"; };
@@ -97,6 +103,9 @@
 				A20000000000000000000002 /* HomeView.swift */,
 				A20000000000000000000007 /* MarketOpeningHours.swift */,
 				A20000000000000000000009 /* MarketAddresses.swift */,
+				A20000000000000000000010 /* LowCrowdNotification.swift */,
+				A20000000000000000000011 /* MarketDiscovery.swift */,
+				A20000000000000000000012 /* MarketCrowdData.swift */,
 			);
 			path = Home;
 			sourceTree = "<group>";
@@ -173,6 +182,9 @@
 				A10000000000000000000002 /* HomeView.swift in Sources */,
 				A10000000000000000000006 /* MarketOpeningHours.swift in Sources */,
 				A10000000000000000000007 /* MarketAddresses.swift in Sources */,
+				A10000000000000000000008 /* LowCrowdNotification.swift in Sources */,
+				A10000000000000000000011 /* MarketDiscovery.swift in Sources */,
+				A10000000000000000000012 /* MarketCrowdData.swift in Sources */,
 				A10000000000000000000004 /* AppRootView.swift in Sources */,
 				A10000000000000000000005 /* AppTheme.swift in Sources */,
 			);

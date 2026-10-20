@@ -41,14 +41,7 @@ final class MarketAddressStore: ObservableObject {
 
 enum GoogleMarketAddresses {
     // Verified Google listings; only Place IDs are stored, not address responses.
-    static let placeIDs: [String: String] = [
-        "Raja Market": "ChIJPc7ToDMXrjsRe8YoBeRWLA4",
-        "KR Market": "ChIJ_xC6VOEVrjsRy_ZNwGx87Ac",
-        "Chickpet Market": "ChIJU7WvbgAXrjsR0EVUMCsL4EQ",
-        "Russell Market": GoogleMarketHours.russellPlaceID,
-        "Jayanagar Market": "ChIJU7PCQbwVrjsRQapyxEblmF0",
-        "Sunday Market": "ChIJ6UjQKAgWrjsRyMaQpOJo2V4"
-    ]
+    static let placeIDs = GoogleMarketHours.placeIDs
 
     private struct Place: Decodable {
         let id: String?

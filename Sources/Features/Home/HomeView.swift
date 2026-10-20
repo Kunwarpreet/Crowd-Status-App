@@ -1,4 +1,5 @@
 import SwiftUI
+import Charts
 
 private struct NearbyMarket: Identifiable {
     let id: String
@@ -6,12 +7,14 @@ private struct NearbyMarket: Identifiable {
     let imageName: String
     let crowdLevel: CrowdLevel
     let distance: String
+    var livePlace: GoogleMarketPlace? = nil
 }
 
 private struct PopularMarket: Identifiable {
     let id: String
     let name: String
     let imageName: String
+    var livePlace: GoogleMarketPlace? = nil
 }
 
 private enum CrowdLevel {
@@ -56,38 +59,41 @@ private extension Color {
 
 struct HomeView: View {
     @State private var selectedMarket: MarketSearchResult?
-    @StateObject private var openingHours = MarketOpeningHoursStore()
+    @AppStorage("marketAlertWindows") private var savedAlertWindows = Data()
+    @AppStorage("lowCrowdNotificationConfirmations") private var savedLowCrowdNotifications = Data()
+    @AppStorage("seenMarketNotifications") private var seenNotifications = Data()
+    @AppStorage("clearedMarketNotifications") private var clearedNotifications = Data()
+    @ObservedObject private var cityStore = MarketCityStore.shared
+    @ObservedObject private var details = MarketDetailsStore.shared
+    @StateObject private var homeMarkets = HomeMarketStore.shared
+    @ObservedObject private var journeys = MarketJourneyStore.shared
     @Environment(\.scenePhase) private var scenePhase
 
-    private let nearbyMarkets = [
-        NearbyMarket(
-            id: "russell",
-            name: "Russell Market",
-            imageName: "RussellMarket",
-            crowdLevel: .low,
-            distance: "1km"
-        ),
-        NearbyMarket(
-            id: "jayanagar",
-            name: "Jayanagar Market",
-            imageName: "JayanagarMarket",
-            crowdLevel: .medium,
-            distance: "1.5km"
-        ),
-        NearbyMarket(
-            id: "sunday",
-            name: "Sunday Market",
-            imageName: "SundayMarket",
-            crowdLevel: .high,
-            distance: "2km"
-        )
-    ]
+    private var hasUnreadNotifications: Bool {
+        let alerts = (try? JSONDecoder().decode([MarketAlertWindow].self, from: savedAlertWindows)) ?? []
+        let lowCrowd = (try? JSONDecoder().decode([LowCrowdNotification].self, from: savedLowCrowdNotifications)) ?? []
+        return !MarketNotificationReadState.unreadIDs(
+            notificationIDs: alerts.map(\.notificationID) + lowCrowd.map(\.notificationID),
+            seen: seenNotifications, cleared: clearedNotifications
+        ).isEmpty
+    }
 
-    private let popularMarkets = [
-        PopularMarket(id: "kr", name: "KR Market", imageName: "PopularKRMarket"),
-        PopularMarket(id: "chickpet", name: "Chickpet Market", imageName: "PopularChickpetMarket"),
-        PopularMarket(id: "raja", name: "Raja Market", imageName: "PopularRajaMarket")
-    ]
+    private var locationID: String {
+        "\(cityStore.hasResolvedCity)|\(cityStore.city)|\(cityStore.location?.coordinate.latitude ?? 0)|\(cityStore.location?.coordinate.longitude ?? 0)"
+    }
+    private var nearbyMarkets: [NearbyMarket] {
+        homeMarkets.nearby.filter { details.isAvailableForHome(placeID: $0.id) }.map { candidate in
+            let place = details.places[candidate.id] ?? candidate
+            let percent = MarketCrowdData.demo(marketID: place.id, timeZoneID: details.statuses[place.id]?.timeZoneID ?? TimeZone.current.identifier).currentPercent
+            return NearbyMarket(id: place.id, name: place.name, imageName: "", crowdLevel: percent < 35 ? .low : percent < 65 ? .medium : .high, distance: journeys.distanceLabel(for: place, from: cityStore.location) ?? "", livePlace: place)
+        }
+    }
+    private var popularMarkets: [PopularMarket] {
+        homeMarkets.popular.filter { details.isAvailableForHome(placeID: $0.id) }.map { PopularMarket(id: $0.id, name: $0.name, imageName: "", livePlace: $0) }
+    }
+    private func refreshMarkets(force: Bool = false) async {
+        await homeMarkets.refresh(city: cityStore.city, location: cityStore.location, hasResolvedCity: cityStore.hasResolvedCity, force: force)
+    }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -103,35 +109,53 @@ struct HomeView: View {
         .navigationDestination(item: $selectedMarket) { market in
             MarketDetailView(market: market)
         }
-        .task(id: scenePhase) {
+        .onAppear {
+            cityStore.startTracking()
+            _ = LowCrowdNotification.allSaved()
+        }
+        .onDisappear { cityStore.stopTracking() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { cityStore.startTracking() } else { cityStore.stopTracking() }
+        }
+        .task(id: "\(scenePhase)|\(locationID)|\(homeMarkets.nearby.map(\.id))") {
             guard scenePhase == .active else { return }
             while !Task.isCancelled {
-                await openingHours.refresh(markets: nearbyMarkets.map { ($0.id, $0.name) })
-                do {
-                    try await Task.sleep(for: .seconds(30))
-                } catch {
-                    return
+                await journeys.refresh(places: homeMarkets.nearby, location: cityStore.location)
+                do { try await Task.sleep(for: .seconds(300)) } catch { return }
+            }
+        }
+        .task(id: locationID) { await refreshMarkets() }
+        .task(id: "\(scenePhase)|\(homeMarkets.nearby.map(\.id))|\(homeMarkets.popular.map(\.id))") {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                for place in GoogleMarketDiscovery.merging(homeMarkets.nearby, homeMarkets.popular) {
+                    await details.load(placeID: place.id)
                 }
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
             }
         }
         .refreshable {
-            await openingHours.refresh(markets: nearbyMarkets.map { ($0.id, $0.name) }, force: true)
+            cityStore.detectCity()
+            await refreshMarkets(force: true)
         }
     }
 
     private var header: some View {
         VStack(spacing: AppSpacing.large) {
             HStack(spacing: 8) {
-                HStack(spacing: 2) {
+                NavigationLink { MarketSearchView() } label: {
+                  HStack(spacing: 2) {
                     Image("LocationPin")
                         .resizable()
                         .frame(width: 24, height: 24)
 
-                    Text("BK Nagar Main Rd, BLR")
+                    Text(cityStore.isLocating ? "Finding your location…" : cityStore.hasResolvedCity ? cityStore.homeLocationLabel : "Choose your location")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.black)
                         .lineLimit(1)
+                  }
                 }
+                .buttonStyle(.plain)
 
                 Spacer(minLength: 8)
 
@@ -142,10 +166,22 @@ struct HomeView: View {
                         .font(.system(size: 22, weight: .medium))
                         .foregroundStyle(.black)
                         .frame(width: 44, height: 44)
+                        .overlay(alignment: .topTrailing) {
+                            if hasUnreadNotifications {
+                                Circle()
+                                    .fill(AppColors.primary)
+                                    .frame(width: 8, height: 8)
+                                    .overlay { Circle().stroke(.white, lineWidth: 2) }
+                                    .padding(.top, 7)
+                                    .padding(.trailing, 8)
+                                    .accessibilityHidden(true)
+                            }
+                        }
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Notifications")
+                .accessibilityValue(hasUnreadNotifications ? "Unread notifications" : "No unread notifications")
                 .accessibilityHint("Opens notifications")
 
                 Image("ProfileAvatar")
@@ -193,7 +229,13 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 40) {
             VStack(alignment: .leading, spacing: 32) {
                 VStack(alignment: .leading, spacing: 24) {
-                    sectionHeading("Nearby", subtitle: "Check nearby markets crowd")
+                    sectionHeading("Nearby", subtitle: "Markets closest to you · Within 8 km")
+                    if homeMarkets.isLoading || cityStore.isLocating { ProgressView("Finding markets…") }
+                    if let error = homeMarkets.errorMessage { Text(error).font(.footnote).foregroundStyle(.secondary) }
+                    if !homeMarkets.isLoading && !cityStore.isLocating && nearbyMarkets.isEmpty {
+                        Text(cityStore.location == nil ? "Enable location to find nearby markets, or tap your location above to choose a city." : "No nearby markets found within 8 km.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
 
                     VStack(spacing: 20) {
                         ForEach(nearbyMarkets) { market in
@@ -202,7 +244,7 @@ struct HomeView: View {
                             } label: {
                                 NearbyMarketCard(
                                     market: market,
-                                    openingStatus: openingHours.statuses[market.id]
+                                    openingStatus: details.statuses[market.id]
                                 )
                                     .contentShape(Rectangle())
                             }
@@ -215,7 +257,10 @@ struct HomeView: View {
             }
 
             VStack(alignment: .leading, spacing: 24) {
-                sectionHeading("Popular", subtitle: "Check popular markets crowd")
+                sectionHeading("Popular", subtitle: cityStore.hasResolvedCity ? "Most reviewed markets in \(cityStore.cityName)" : "Choose your location to discover popular markets")
+                if !homeMarkets.isLoading && cityStore.hasResolvedCity && popularMarkets.isEmpty {
+                    Text("No popular markets found. Try another city.").font(.footnote).foregroundStyle(.secondary)
+                }
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 16) {
@@ -223,7 +268,7 @@ struct HomeView: View {
                             Button {
                                 selectedMarket = market.detail
                             } label: {
-                                PopularMarketCard(market: market)
+                                PopularMarketCard(market: market, openingStatus: details.statuses[market.id])
                                     .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
@@ -252,11 +297,23 @@ private struct NearbyMarketCard: View {
     let market: NearbyMarket
     let openingStatus: MarketOpeningStatus?
 
+    private var openingLabel: AttributedString {
+        var label = AttributedString(openingStatus?.label ?? "Checking hours…")
+        label.foregroundColor = AppColors.secondaryText
+        let statusEnd = label.range(of: " · ")?.lowerBound ?? label.endIndex
+        label[label.startIndex..<statusEnd].foregroundColor =
+            openingStatus?.isOpen == true ? Color(hex: 0x156014)
+            : openingStatus?.isOpen == false ? Color(hex: 0xDD0405)
+            : AppColors.secondaryText
+        return label
+    }
+
     var body: some View {
         HStack(spacing: 12) {
-            Image(market.imageName)
-                .resizable()
-                .scaledToFill()
+            Group {
+                if let photo = market.livePlace?.photos?.first { GoogleMarketPhotoView(photo: photo, compact: true, showsAuthorAttributions: false) }
+                else { ZStack { Color(.systemGray6); Image(systemName: "storefront").foregroundStyle(.secondary) } }
+            }
                 .frame(width: 72, height: 72)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay {
@@ -272,12 +329,7 @@ private struct NearbyMarketCard: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
 
-                Text(openingStatus?.label ?? "Checking hours…")
-                    .foregroundStyle(
-                        openingStatus?.isOpen == true ? Color(hex: 0x156014)
-                        : openingStatus?.isOpen == false ? Color(hex: 0xDD0405)
-                        : AppColors.secondaryText
-                    )
+                Text(openingLabel)
                     .font(.system(size: 12, weight: .semibold))
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -362,13 +414,24 @@ private struct CrowdStatusCard: View {
 }
 
 private struct PopularMarketCard: View {
+    @ObservedObject private var details = MarketDetailsStore.shared
     let market: PopularMarket
+    let openingStatus: MarketOpeningStatus?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Image(market.imageName)
-                .resizable()
-                .scaledToFill()
+            Group {
+                if market.imageName.isEmpty {
+                    if let photo = (details.places[market.detail.id] ?? market.livePlace)?.photos?.first {
+                        GoogleMarketPhotoView(photo: photo, compact: true, showsAuthorAttributions: false)
+                    } else {
+                        ZStack {
+                            Color(.systemGray6)
+                            Image(systemName: "storefront").foregroundStyle(.secondary)
+                        }
+                    }
+                } else { Image(market.imageName).resizable().scaledToFill() }
+            }
                 .frame(width: 129, height: 76)
                 .clipped()
                 .overlay {
@@ -384,12 +447,15 @@ private struct PopularMarketCard: View {
                         .lineLimit(1)
 
                     HStack(spacing: 4) {
-                        Text("Open")
+                        Text(openingStatus.map { status in
+                            status.isOpen.map { $0 ? "Open" : "Closed" } ?? "Hours unavailable"
+                        } ?? "Checking hours…")
                             .foregroundStyle(AppColors.secondaryText)
+                            .accessibilityLabel(openingStatus?.label ?? "Checking hours…")
                         Circle()
                             .fill(AppColors.secondaryText)
                             .frame(width: 2, height: 2)
-                        Text("4.0")
+                        Text((details.places[market.detail.id] ?? market.livePlace)?.rating.map { String(format: "%.1f", $0) } ?? "—")
                             .foregroundStyle(.black)
                         Image(systemName: "star.fill")
                             .font(.system(size: 10))
@@ -415,6 +481,9 @@ private struct PopularMarketCard: View {
         }
         .shadow(color: .black.opacity(0.05), radius: 1, x: 0, y: 0)
         .accessibilityElement(children: .combine)
+        .task {
+            if let placeID = market.detail.resolvedPlaceID { await details.load(placeID: placeID) }
+        }
     }
 }
 
@@ -422,27 +491,25 @@ private struct PopularMarketCard: View {
     HomeView()
 }
 
-private struct MarketSearchResult: Identifiable, Hashable {
+struct MarketSearchResult: Identifiable, Hashable {
     let name: String
     let imageName: String
     let distance: String
 
-    var id: String { name }
-
-    // Shared sample gallery in the order supplied in the design reference.
-    var galleryImageNames: [String] {
-        ["PopularRajaMarket", "JayanagarMarket", "RussellMarket", "PopularChickpetMarket"]
-    }
+    var livePlace: GoogleMarketPlace? = nil
+    var resolvedPlaceID: String? { livePlace?.id ?? GoogleMarketHours.placeIDs[name] }
+    var id: String { resolvedPlaceID ?? name }
 
     // Sample editorial copy and visit details, pending a live market data source.
     var aboutDescription: String {
-        switch name {
+        if livePlace != nil { return "Explore \(name) and plan your visit using the opening hours and directions below." }
+        return switch name {
         case "Raja Market":
             "Raja Market is most famous for its vast wholesale and retail selection of imitation and traditional jewelry, including Kundan sets, temple jewelry, Rajasthani handmade pieces, and antique silver items."
         case "KR Market":
             "Explore KR Market’s busy shopping lanes, browse the stalls, and discover something new on your next visit. Check the crowd before you leave and use the directions below to plan your trip."
-        case "Chickpet Market":
-            "Take a walk through Chickpet Market, explore the shops, and compare finds along the way. Plan some extra time to browse and check the crowd to choose a comfortable time for your visit."
+        case "Gandhi Bazaar Flower Market":
+            "Browse flower stalls at Gandhi Bazaar Flower Market and plan your visit with the opening hours and directions below."
         case "Russell Market":
             "Browse Russell Market’s stalls and explore the surrounding shopping area at your own pace. Check today’s crowd and plan your route before heading out for your next market visit."
         case "Jayanagar Market":
@@ -454,12 +521,6 @@ private struct MarketSearchResult: Identifiable, Hashable {
         }
     }
 
-    var openingDays: String { name == "Sunday Market" ? "Sunday" : "Mon-Sat" }
-    var openingHours: String { "9am - 9pm" }
-    var rating: String { "4/5" }
-
-    // Shared contact number supplied for all markets.
-    var phoneURL: URL { URL(string: "tel:8054369102")! }
 }
 
 private extension NearbyMarket {
@@ -467,7 +528,8 @@ private extension NearbyMarket {
         MarketSearchResult(
             name: name,
             imageName: imageName,
-            distance: distance
+            distance: distance,
+            livePlace: livePlace
         )
     }
 }
@@ -477,7 +539,8 @@ private extension PopularMarket {
         MarketSearchResult(
             name: name,
             imageName: imageName,
-            distance: "5kms"
+            distance: "",
+            livePlace: livePlace
         )
     }
 }
@@ -491,45 +554,11 @@ private struct MarketSearchView: View {
 
     var presentsAlertSetup = false
 
-    private let markets = [
-        MarketSearchResult(
-            name: "Raja Market",
-            imageName: "PopularRajaMarket",
-            distance: "5kms"
-        ),
-        MarketSearchResult(
-            name: "KR Market",
-            imageName: "PopularKRMarket",
-            distance: "5kms"
-        ),
-        MarketSearchResult(
-            name: "Chickpet Market",
-            imageName: "PopularChickpetMarket",
-            distance: "5kms"
-        ),
-        MarketSearchResult(
-            name: "Russell Market",
-            imageName: "RussellMarket",
-            distance: "1km"
-        ),
-        MarketSearchResult(
-            name: "Jayanagar Market",
-            imageName: "JayanagarMarket",
-            distance: "1.5km"
-        ),
-        MarketSearchResult(
-            name: "Sunday Market",
-            imageName: "SundayMarket",
-            distance: "2km"
-        ),
-    ]
+    @ObservedObject private var cityStore = MarketCityStore.shared
+    @StateObject private var search = MarketSearchStore()
+    @State private var cityText = ""
 
-    private var matchingMarkets: [MarketSearchResult] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return [] }
-
-        return markets.filter { $0.name.localizedCaseInsensitiveContains(query) }
-    }
+    private var searchID: String { "\(cityStore.city)|\(searchText)" }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -551,7 +580,7 @@ private struct MarketSearchView: View {
                         .font(.system(size: 20, weight: .medium))
                         .foregroundStyle(.black)
 
-                    TextField("", text: $searchText)
+                    TextField("Search markets", text: $searchText)
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(.black)
                         .focused($isSearchFocused)
@@ -570,9 +599,22 @@ private struct MarketSearchView: View {
             .padding(.horizontal, 20)
             .padding(.top, 8)
 
+            TextField("City, country", text: $cityText)
+                .font(.system(size: 14))
+                .submitLabel(.search)
+                .onSubmit { cityStore.useCity(cityText) }
+                .accessibilityLabel("City to search")
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+            if let message = cityStore.locationMessage {
+                Text(message).font(.system(size: 12)).foregroundStyle(AppColors.secondaryText)
+                    .padding(.horizontal, 20)
+            }
+
             ScrollView(showsIndicators: false) {
                 LazyVStack(spacing: 16) {
-                    ForEach(matchingMarkets) { market in
+                    ForEach(search.markets) { place in
+                        let market = MarketSearchResult(name: place.name, imageName: "", distance: place.distance(from: cityStore.location) ?? "", livePlace: place)
                         Button {
                             isSearchFocused = false
                             if presentsAlertSetup {
@@ -585,6 +627,28 @@ private struct MarketSearchView: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                    }
+                    if search.isLoading {
+                        ProgressView("Loading markets…")
+                    } else if let message = search.errorMessage {
+                        Text(message).font(.system(size: 14)).foregroundStyle(AppColors.secondaryText)
+                        Button("Try again") {
+                            Task {
+                                if search.nextPageToken != nil { await search.loadMore() }
+                                else { await search.search(city: cityStore.city, query: searchText) }
+                            }
+                        }
+                    } else if search.markets.isEmpty {
+                        Text("No markets found. Try a different name or city.")
+                            .font(.system(size: 14)).foregroundStyle(AppColors.secondaryText)
+                    }
+                    if search.nextPageToken != nil && !search.isLoading {
+                        Button("Load more markets") { Task { await search.loadMore() } }
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    if !search.markets.isEmpty {
+                        Text("Market listings from Google Maps")
+                            .font(.system(size: 12)).foregroundStyle(AppColors.secondaryText)
                     }
                 }
                 .padding(.horizontal, 29)
@@ -603,9 +667,12 @@ private struct MarketSearchView: View {
             MarketAlertSheet(market: market)
         }
         .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                isSearchFocused = true
-            }
+            cityText = cityStore.city
+            cityStore.detectCity(automatically: true)
+        }
+        .onChange(of: cityStore.city) { _, city in cityText = city }
+        .task(id: searchID) {
+            await search.search(city: cityStore.city, query: searchText)
         }
     }
 }
@@ -628,7 +695,7 @@ private struct MarketSearchResultRow: View {
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(.black)
 
-                    Text(addresses.label(for: market.name))
+                    Text(market.livePlace?.formattedAddress ?? addresses.label(for: market.name))
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Color(hex: 0x808080))
                         .fixedSize(horizontal: false, vertical: true)
@@ -644,7 +711,7 @@ private struct MarketSearchResultRow: View {
         }
         .accessibilityElement(children: .combine)
         .task(id: market.id) {
-            await addresses.load(marketName: market.name)
+            if market.livePlace == nil { await addresses.load(marketName: market.name) }
         }
     }
 }
@@ -653,16 +720,19 @@ private struct LiveCrowdIndicator: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
 
-    private let fadeDuration: TimeInterval = 0.6
+    private let blinkDuration: TimeInterval = 1.2
 
     var body: some View {
-        if reduceMotion || scenePhase != .active {
+        if reduceMotion {
             dot
         } else {
-            dot.phaseAnimator([true, false]) { content, isVisible in
-                content.opacity(isVisible ? 1 : 0.15)
-            } animation: { _ in
-                .easeInOut(duration: fadeDuration)
+            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: scenePhase != .active)) { context in
+                // Derive opacity from time so navigation and foreground transitions
+                // cannot leave a repeating animation stuck in its initial phase.
+                let progress = context.date.timeIntervalSinceReferenceDate
+                    .truncatingRemainder(dividingBy: blinkDuration) / blinkDuration
+                let opacity = 0.15 + 0.85 * (1 + cos(progress * 2 * .pi)) / 2
+                dot.opacity(opacity)
             }
         }
     }
@@ -676,82 +746,252 @@ private struct LiveCrowdIndicator: View {
 }
 
 private struct MarketDetailView: View {
-    @ObservedObject private var addresses = MarketAddressStore.shared
+    @ObservedObject private var details = MarketDetailsStore.shared
+    @ObservedObject private var journeys = MarketJourneyStore.shared
+    @ObservedObject private var cityStore = MarketCityStore.shared
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
-    @State private var isBookmarked = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("lowCrowdNotificationMarkets") private var notificationMarkets = Data()
+    @State private var showsOpeningHours = false
     @State private var selectedPhotoIndex = 0
+    @State private var crowdScrollPosition: Double = 0
+    @State private var crowdScrollDragStart: Double?
     @State private var showsAlertNotice = false
+    @State private var showsNotificationConfirmation = false
+    @State private var isRemovingNotification = false
+    @State private var showsNotificationSet = false
+    @State private var notificationToastID: UUID?
 
     let market: MarketSearchResult
 
-    private let crowdValues: [CGFloat] = [
-        0.18, 0.31, 0.26, 0.61, 0.2, 0.16, 0.23, 0.19, 0.14, 0.11, 0.16, 0.12, 0.1
-    ]
-    private let hours = ["9am", "10am", "11am", "12pm", "1pm", "2pm", "3pm", "4pm", "5pm", "6pm", "7pm", "8pm", "9pm"]
+    private var place: GoogleMarketPlace? { details.places[market.id] ?? market.livePlace }
+    private var marketPhotos: [GoogleMarketPlace.Photo] { Array((place?.photos ?? []).prefix(4)) }
+    private var addressLabel: String {
+        place?.formattedAddress ?? (details.failures.contains(market.id) ? "Address unavailable" : "Loading address…")
+    }
+    private var distanceLabel: String? {
+        place.flatMap { journeys.distanceLabel(for: $0, from: cityStore.location) }
+    }
+    private var journeyContextID: String {
+        "\(scenePhase)|\(market.id)|\(cityStore.location?.coordinate.latitude ?? 0)|\(cityStore.location?.coordinate.longitude ?? 0)|\(place?.location?.latitude ?? 0)|\(place?.location?.longitude ?? 0)"
+    }
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 0) {
-                heroImage
-                marketInformation
+        ZStack(alignment: .bottom) {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    heroImage
+                    marketInformation
+                }
+            }
+            .ignoresSafeArea(edges: .top)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.white)
+        .toolbar(.hidden, for: .navigationBar)
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            cityStore.startTracking(owner: "detail")
+            defer { cityStore.stopTracking(owner: "detail") }
+            while !Task.isCancelled {
+                if let placeID = market.resolvedPlaceID { await details.load(placeID: placeID) }
+                do { try await Task.sleep(for: .seconds(30)) }
+                catch { return }
             }
         }
-        .background(Color.white)
-        .ignoresSafeArea(edges: .top)
-        .toolbar(.hidden, for: .navigationBar)
-        .task(id: market.id) {
-            await addresses.load(marketName: market.name)
+        .task(id: journeyContextID) {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                if let place { await journeys.refresh(places: [place], location: cityStore.location) }
+                do { try await Task.sleep(for: .seconds(300)) }
+                catch { return }
+            }
         }
         .sheet(isPresented: $showsAlertNotice) {
             MarketAlertSheet(market: market)
         }
+        .alert(
+            isRemovingNotification
+                ? "Do you want to remove this alert notification"
+                : "Do you want to get notified everytime when there is low crowd.",
+            isPresented: $showsNotificationConfirmation
+        ) {
+            if isRemovingNotification {
+                Button("Yes, Remove", role: .destructive) {
+                    removeLowCrowdNotifications()
+                }
+                Button("Keep", role: .cancel) {}
+                    .keyboardShortcut(.defaultAction)
+            } else {
+                Button("Notified") {
+                    enableLowCrowdNotifications()
+                }
+                .keyboardShortcut(.defaultAction)
+                Button("Cancel", role: .cancel) {}
+            }
+        }
+        .task(id: notificationToastID) {
+            guard notificationToastID != nil else { return }
+            do {
+                // Wait for the native alert to dismiss before starting the visible timer.
+                while showsNotificationConfirmation {
+                    try await Task.sleep(for: .milliseconds(50))
+                }
+                try await Task.sleep(for: .milliseconds(350))
+                withAnimation(reduceMotion ? .easeIn(duration: 0.15) : .spring(response: 0.3, dampingFraction: 0.8)) {
+                    showsNotificationSet = true
+                }
+                try await Task.sleep(for: .milliseconds(3500))
+            } catch {
+                return
+            }
+            withAnimation(.easeOut(duration: 0.2)) {
+                showsNotificationSet = false
+            }
+        }
+        .onDisappear {
+            showsNotificationSet = false
+            notificationToastID = nil
+        }
+    }
+
+    private var notificationSetToast: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(Color(hex: 0x00C853))
+                .accessibilityHidden(true)
+            Text("Notification Set")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.black)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .background(.white, in: RoundedRectangle(cornerRadius: 16))
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Notification Set")
+    }
+
+    private var legacyNotificationNames: [String] {
+        GoogleMarketHours.placeIDs.compactMap { name, placeID in
+            placeID == market.resolvedPlaceID ? name : nil
+        }
+    }
+
+    private func enableLowCrowdNotifications() {
+        LowCrowdNotification.save(for: market.name, placeID: market.resolvedPlaceID, legacyMarketNames: legacyNotificationNames)
+        var saved = Set((try? JSONDecoder().decode([String].self, from: notificationMarkets)) ?? [])
+        saved.subtract(legacyNotificationNames)
+        saved.remove(market.name)
+        saved.insert(market.id)
+        if let data = try? JSONEncoder().encode(saved.sorted()) {
+            notificationMarkets = data
+        }
+        showsNotificationConfirmation = false
+        showsNotificationSet = false
+        notificationToastID = UUID()
+    }
+
+    private var lowCrowdNotificationsEnabled: Bool {
+        let saved = (try? JSONDecoder().decode([String].self, from: notificationMarkets)) ?? []
+        return saved.contains(market.id) || !Set(saved).isDisjoint(with: legacyNotificationNames)
+    }
+
+    private func removeLowCrowdNotifications() {
+        LowCrowdNotification.remove(for: market.name, placeID: market.resolvedPlaceID, legacyMarketNames: legacyNotificationNames)
+        notificationMarkets = UserDefaults.standard.data(forKey: "lowCrowdNotificationMarkets") ?? Data()
+        showsNotificationSet = false
+        notificationToastID = nil
+    }
+
+    private var notificationButtonIcon: some View {
+        Group {
+            if lowCrowdNotificationsEnabled {
+                Image(systemName: "bell")
+                    .font(.system(size: 22, weight: .medium))
+                    .overlay(alignment: .topTrailing) {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .bold))
+                            .padding(2)
+                            .background(.white, in: Circle())
+                            .offset(x: 4, y: -3)
+                    }
+                    .foregroundStyle(Color(hex: 0x00C853))
+                    .frame(width: 24, height: 24)
+            } else {
+                Image("NotificationAdd")
+                    .resizable()
+                    .frame(width: 24, height: 24)
+            }
+        }
+        .frame(width: 48, height: 48)
+        .background(.white, in: RoundedRectangle(cornerRadius: 16))
+        .accessibilityHidden(true)
     }
 
     private var heroImage: some View {
         ZStack(alignment: .top) {
             TabView(selection: $selectedPhotoIndex) {
-                ForEach(Array(market.galleryImageNames.enumerated()), id: \.offset) { index, imageName in
-                    GeometryReader { geometry in
-                        Image(imageName)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: geometry.size.width, height: geometry.size.height)
-                            .clipped()
+                if marketPhotos.isEmpty {
+                    ZStack {
+                        Color(.systemGray6)
+                        Image(systemName: "storefront")
+                            .font(.system(size: 48)).foregroundStyle(.secondary)
+                        Text(details.places[market.id] == nil && !details.failures.contains(market.id) ? "Loading photos…" : "Photos unavailable")
+                            .font(.system(size: 12)).foregroundStyle(.secondary).offset(y: 48)
                     }
-                    .tag(index)
-                    .accessibilityLabel("Market photo \(index + 1) of \(market.galleryImageNames.count)")
+                    .tag(0)
+                } else {
+                    ForEach(Array(marketPhotos.enumerated()), id: \.element.id) { index, photo in
+                        GoogleMarketPhotoView(photo: photo, showsAuthorAttributions: false)
+                            .tag(index)
+                            .accessibilityLabel("Market photo \(index + 1) of \(marketPhotos.count)")
+                    }
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .frame(height: 296)
+            .onChange(of: marketPhotos.count) { _, count in
+                selectedPhotoIndex = min(selectedPhotoIndex, max(0, count - 1))
+            }
             .accessibilityLabel("Photos of \(market.name)")
-            .accessibilityValue("Photo \(selectedPhotoIndex + 1) of \(market.galleryImageNames.count)")
+            .accessibilityValue(marketPhotos.isEmpty ? "Photos unavailable" : "Photo \(selectedPhotoIndex + 1) of \(marketPhotos.count)")
 
-            HStack {
+            HStack(spacing: 12) {
                 detailAction(symbol: "arrow.left", label: "Back") {
                     dismiss()
                 }
 
-                Spacer()
+                ZStack {
+                    if showsNotificationSet {
+                        notificationSetToast
+                            .transition(reduceMotion ? .opacity : .scale(scale: 0.9).combined(with: .opacity))
+                            .allowsHitTesting(false)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 48)
 
                 Button {
-                    showsAlertNotice = true
+                    isRemovingNotification = lowCrowdNotificationsEnabled
+                    showsNotificationConfirmation = true
                 } label: {
-                    Image("NotificationAdd")
-                        .resizable()
-                        .frame(width: 24, height: 24)
-                        .frame(width: 48, height: 48)
-                        .background(.white, in: RoundedRectangle(cornerRadius: 16))
+                    notificationButtonIcon
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Set a crowd alert for \(market.name)")
+                .accessibilityLabel("\(lowCrowdNotificationsEnabled ? "Remove" : "Enable") low crowd notifications for \(market.name)")
+                .accessibilityValue(lowCrowdNotificationsEnabled ? "Enabled" : "Not enabled")
             }
             .padding(.horizontal, 16)
             .padding(.top, 96)
 
-            if market.galleryImageNames.count > 1 {
+            if marketPhotos.count > 1 {
                 HStack(spacing: 4) {
-                    ForEach(market.galleryImageNames.indices, id: \.self) { index in
+                    ForEach(marketPhotos.indices, id: \.self) { index in
                         Circle()
                             .fill(index == selectedPhotoIndex ? .white : .white.opacity(0.4))
                             .frame(width: 8, height: 8)
@@ -803,48 +1043,121 @@ private struct MarketDetailView: View {
                             .resizable()
                             .frame(width: 16, height: 16)
                             .accessibilityHidden(true)
-                        Text(addresses.label(for: market.name))
+                        Text(addressLabel)
                             .font(.system(size: 12, weight: .medium))
-                            .fixedSize(horizontal: false, vertical: true)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .accessibilityLabel(addressLabel)
                     }
                     .foregroundStyle(AppColors.secondaryText)
                 }
 
-                Text("\(market.distance) from your location")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.black)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                if let distance = distanceLabel {
+                    Text("\(distance) from your location")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.black)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(width: 250, alignment: .leading)
 
-            Spacer(minLength: 0)
-
-            Button {
-                isBookmarked.toggle()
-            } label: {
-                Image(systemName: isBookmarked ? "bookmark.fill" : "bookmark")
-                    .font(.system(size: 24, weight: .regular))
-                    .foregroundStyle(.black)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(isBookmarked ? "Remove bookmark" : "Bookmark")
+            openingHoursDropdown
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private var openingHoursDropdown: some View {
+        let status = details.statuses[market.id]
+        let title = status.map { $0.isOpen.map { $0 ? "Open" : "Closed" } ?? "Unavailable" } ?? "Checking…"
+        return Button {
+            showsOpeningHours.toggle()
+        } label: {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(status?.isOpen == true ? Color(hex: 0x156014) : AppColors.secondaryText)
+                    .lineLimit(1)
+                Image(systemName: showsOpeningHours ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(AppColors.secondaryText)
+            }
+            .frame(minWidth: 76, maxWidth: 100, minHeight: 44)
+            .background(.white, in: Capsule())
+            .overlay { Capsule().stroke(Color(hex: 0xF2F2F7), lineWidth: 1) }
+            .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title). Opening hours")
+        .accessibilityHint("Shows all weekdays and their opening and closing times")
+        .accessibilityValue(showsOpeningHours ? "Expanded" : "Collapsed")
+        .popover(isPresented: $showsOpeningHours, arrowEdge: .top) {
+            Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 10) {
+                ForEach((status ?? .unavailable).weeklyHours()) { row in
+                    GridRow(alignment: .top) {
+                        Text(row.day)
+                        Text(row.hours)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .font(.system(size: 16, weight: row.isToday ? .bold : .regular))
+                    .foregroundStyle(row.isToday ? AppColors.primaryText : AppColors.secondaryText)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(row.isToday ? "Today, " : "")\(row.day), \(row.hours)")
+                }
+            }
+            .fixedSize(horizontal: true, vertical: true)
+            .padding(20)
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+
     private var todaysCrowd: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            sectionHeading("Today’s crowd")
-            crowdSummary
-            VStack(spacing: 12) {
-                crowdChart
-                Text("Updates in every 10mins")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
+        TimelineView(.periodic(from: Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970 / 60) * 60), by: 60)) { context in
+            let status = details.statuses[market.id]
+            let intervals = status?.todayOpenIntervals(at: context.date)
+            VStack(alignment: .leading, spacing: 24) {
+                HStack {
+                    sectionHeading("Today’s crowd")
+                    Spacer()
+                    Text("Demo data")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(AppColors.secondaryText)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color(hex: 0xF3F3F6), in: Capsule())
+                }
+                if let intervals {
+                    if intervals.isEmpty {
+                        Text("Closed today")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(AppColors.secondaryText)
+                    } else {
+                        let snapshot = MarketCrowdData.demo(
+                            marketID: market.id,
+                            timeZoneID: status?.timeZoneID ?? "Asia/Kolkata",
+                            now: context.date,
+                            openIntervals: intervals
+                        )
+                        crowdSummary(snapshot)
+                        if snapshot.visibleSamples.isEmpty {
+                            Text("Crowd graph starts when the market opens today.")
+                                .font(.system(size: 14))
+                                .foregroundStyle(AppColors.secondaryText)
+                        } else {
+                            VStack(spacing: 12) {
+                                crowdChart(snapshot)
+                                Text("Simulated data · refreshes every 10 minutes")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(AppColors.secondaryText)
+                                    .frame(maxWidth: .infinity)
+                            }
+                        }
+                    }
+                } else {
+                    Text(status == nil ? "Checking opening hours…" : "Opening hours unavailable")
+                        .font(.system(size: 14))
+                        .foregroundStyle(AppColors.secondaryText)
+                }
             }
         }
     }
@@ -876,24 +1189,25 @@ private struct MarketDetailView: View {
     private var aboutMarket: some View {
         VStack(alignment: .leading, spacing: 8) {
             sectionHeading("About")
-            Text(market.aboutDescription)
+            Text(place?.editorialSummary?.text ?? market.aboutDescription)
                 .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(.black)
                 .fixedSize(horizontal: false, vertical: true)
 
             Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 16) {
                 GridRow {
-                    marketFact(symbol: "storefront", text: market.openingDays)
-                    marketFact(symbol: "clock", text: market.openingHours)
-                }
-                GridRow {
-                    marketFact(symbol: "star.fill", text: market.rating)
-                    Link(destination: market.phoneURL) {
-                        marketFact(symbol: "phone", text: "Call")
-                            .frame(minHeight: 44)
-                            .contentShape(Rectangle())
+                    marketFact(symbol: "star.fill", text: place?.rating.map { String(format: "%.1f/5", $0) } ?? "Unrated")
+                    if let phoneURL = place?.phoneURL {
+                        Link(destination: phoneURL) {
+                            marketFact(symbol: "phone", text: "Call")
+                                .frame(minHeight: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel("Call \(market.name)")
+                    } else {
+                        marketFact(symbol: "phone", text: "Phone unavailable")
+                            .foregroundStyle(AppColors.secondaryText)
                     }
-                    .accessibilityLabel("Call \(market.name) at 8054369102")
                 }
             }
             .foregroundStyle(.black)
@@ -909,7 +1223,8 @@ private struct MarketDetailView: View {
                 Link(destination: url) {
                     HStack(spacing: 16) {
                         Text("Check on Google Maps")
-                            .font(.system(size: 16, weight: .medium))
+                            .font(.system(size: 16))
+                            .fontWeight(.medium)
                         Spacer(minLength: 0)
                         Image(systemName: "arrow.right")
                             .font(.system(size: 20, weight: .medium))
@@ -937,8 +1252,8 @@ private struct MarketDetailView: View {
         var components = URLComponents(string: "https://www.google.com/maps/search/")
         components?.queryItems = [
             URLQueryItem(name: "api", value: "1"),
-            URLQueryItem(name: "query", value: "\(market.name), \(addresses.address(for: market.name) ?? "Bengaluru, Karnataka")"),
-            URLQueryItem(name: "query_place_id", value: GoogleMarketAddresses.placeIDs[market.name])
+            URLQueryItem(name: "query", value: "\(market.name), \(place?.formattedAddress ?? cityStore.city)"),
+            URLQueryItem(name: "query_place_id", value: market.resolvedPlaceID)
         ]
         return components?.url
     }
@@ -956,73 +1271,127 @@ private struct MarketDetailView: View {
                 .frame(width: 24, height: 24)
             Text(text)
                 .font(.system(size: 16, weight: .medium))
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var crowdSummary: some View {
-        HStack(spacing: 24) {
+    private func crowdSummary(_ snapshot: MarketCrowdSnapshot) -> some View {
+        let foreground = !snapshot.isOpenNow ? AppColors.secondaryText : snapshot.currentPercent < 35 ? Color(hex: 0x156014)
+            : snapshot.currentPercent < 65 ? Color(hex: 0xA66600) : Color(hex: 0xDD0405)
+        let background = !snapshot.isOpenNow ? Color(hex: 0xF3F3F6) : snapshot.currentPercent < 35 ? Color(hex: 0xE6FAED)
+            : snapshot.currentPercent < 65 ? Color(hex: 0xFEEFDA) : Color(hex: 0xFCDFE0)
+        return HStack(spacing: 24) {
             Image(systemName: "person.3.fill")
                 .font(.system(size: 24, weight: .semibold))
-
             VStack(alignment: .leading, spacing: 4) {
-                Text("Less right now")
+                Text(snapshot.levelTitle)
                     .font(.system(size: 18, weight: .semibold))
-                Text("Compare to usual")
+                Text(snapshot.isOpenNow ? "\(snapshot.currentPercent)% simulated crowd level" : "Graph shows today’s opening hours")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x808080))
+                    .foregroundStyle(AppColors.secondaryText)
             }
-
             Spacer()
         }
-        .foregroundStyle(Color(hex: 0x156014))
+        .foregroundStyle(foreground)
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, minHeight: 80, alignment: .leading)
-        .background(Color(hex: 0xE6FAED), in: RoundedRectangle(cornerRadius: 24))
+        .background(background, in: RoundedRectangle(cornerRadius: 24))
     }
 
-    private var crowdChart: some View {
+    private func crowdChart(_ snapshot: MarketCrowdSnapshot) -> some View {
         VStack(spacing: 16) {
             HStack(spacing: 4) {
                 LiveCrowdIndicator()
-                Text("Live - less than usual")
+                Text(snapshot.isOpenNow ? "Demo · \(MarketCrowdSnapshot.hourLabel(snapshot.currentHour)) highlighted" : "Demo · past opening hours")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(.black)
             }
             .frame(maxWidth: .infinity)
 
-            VStack(spacing: 4) {
-                HStack(alignment: .bottom, spacing: 4) {
-                    ForEach(Array(crowdValues.enumerated()), id: \.offset) { index, value in
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(index == 3 ? Color(hex: 0xEF4444) : Color(hex: 0xE4EDFF))
-                            .frame(width: 12, height: 112 * value + 8)
-                            .frame(maxWidth: .infinity, alignment: .bottom)
-                    }
-                }
-                .frame(height: 88, alignment: .bottom)
-                .overlay(alignment: .bottom) {
-                    GeometryReader { geometry in
-                        Path { path in
-                            path.move(to: .zero)
-                            path.addLine(to: CGPoint(x: geometry.size.width, y: 0))
+            Chart(snapshot.visibleSamples) { sample in
+                let inset = min(3.0, Double(sample.endMinute - sample.startMinute) * 0.08)
+                RectangleMark(
+                    xStart: .value("Opening time", Double(sample.startMinute) + inset),
+                    xEnd: .value("Closing time", Double(sample.endMinute) - inset),
+                    yStart: .value("Baseline", 0),
+                    yEnd: .value("Simulated crowd level", sample.percent)
+                )
+                .cornerRadius(4)
+                .foregroundStyle(snapshot.isCurrent(sample) ? Color(hex: 0xEF4444) : Color(hex: 0xC8D9FF))
+                .accessibilityLabel("\(MarketCrowdSnapshot.timeLabel(sample.startMinute)) to \(MarketCrowdSnapshot.timeLabel(sample.endMinute))")
+                .accessibilityValue("\(sample.percent) percent, simulated")
+            }
+            .chartXScale(domain: Double(snapshot.samples.first?.startMinute ?? 0)...Double(snapshot.samples.last?.endMinute ?? 60))
+            .chartScrollableAxes(.horizontal)
+            .chartXVisibleDomain(length: snapshot.scrollWindow)
+            .chartScrollPosition(x: $crowdScrollPosition)
+            .onAppear {
+                crowdScrollPosition = snapshot.preferredScrollPosition
+            }
+            .onChange(of: snapshot.visibleSamples.last?.id) { _, _ in
+                crowdScrollPosition = snapshot.preferredScrollPosition
+            }
+            .chartYScale(domain: 0...100)
+            .chartYAxis(.hidden)
+            .chartXAxis {
+                AxisMarks(values: snapshot.axisMinutes) { value in
+                    AxisValueLabel {
+                        if let minute = value.as(Int.self) {
+                            Text(MarketCrowdSnapshot.timeLabel(minute))
+                                .font(.system(size: 8, weight: .regular))
+                                .foregroundStyle(Color(hex: 0x475569))
                         }
-                        .stroke(Color(hex: 0x808080), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                    }
-                    .frame(height: 1)
-                }
-
-                HStack(spacing: 4) {
-                    ForEach(hours, id: \.self) { hour in
-                        Text(hour)
-                            .font(.system(size: 8, weight: .regular))
-                            .foregroundStyle(Color(hex: 0x475569))
-                            .frame(maxWidth: .infinity)
                     }
                 }
             }
+            .frame(height: 112)
+            .accessibilityLabel("Today’s simulated hourly crowd for \(market.name)")
 
+            if snapshot.maxScrollPosition > snapshot.scrollStart {
+                crowdScrollbar(snapshot)
+            }
         }
+    }
+
+    private func crowdScrollbar(_ snapshot: MarketCrowdSnapshot) -> some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let thumbWidth = width * snapshot.scrollWindow / (snapshot.scrollEnd - snapshot.scrollStart)
+            let travel = max(1, width - thumbWidth)
+            let scrollRange = snapshot.maxScrollPosition - snapshot.scrollStart
+            let position = min(snapshot.maxScrollPosition, max(snapshot.scrollStart, crowdScrollPosition))
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color(hex: 0xF3F3F6))
+                Capsule().fill(Color(hex: 0xD1D5DB))
+                    .frame(width: thumbWidth)
+                    .offset(x: (position - snapshot.scrollStart) / scrollRange * travel)
+            }
+            .frame(height: 4)
+            .frame(height: 20)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        if crowdScrollDragStart == nil { crowdScrollDragStart = position }
+                        let destination = (crowdScrollDragStart ?? position) + value.translation.width / travel * scrollRange
+                        crowdScrollPosition = min(snapshot.maxScrollPosition, max(snapshot.scrollStart, destination))
+                    }
+                    .onEnded { _ in crowdScrollDragStart = nil }
+            )
+            .accessibilityElement()
+            .accessibilityLabel("Crowd graph scrollbar")
+            .accessibilityValue("Showing \(MarketCrowdSnapshot.timeLabel(Int(position))) to \(MarketCrowdSnapshot.timeLabel(Int(position + snapshot.scrollWindow)))")
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: crowdScrollPosition = min(snapshot.maxScrollPosition, position + 60)
+                case .decrement: crowdScrollPosition = max(snapshot.scrollStart, position - 60)
+                @unknown default: break
+                }
+            }
+            .onDisappear { crowdScrollDragStart = nil }
+        }
+        .frame(height: 20)
     }
 
     private func detailAction(
@@ -1045,8 +1414,10 @@ private struct MarketDetailView: View {
 private struct MarketNotificationsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var alerts: [MarketAlertWindow] = []
+    @State private var lowCrowdAlerts: [LowCrowdNotification] = []
     @State private var showsClearConfirmation = false
     @AppStorage("clearedMarketNotifications") private var clearedNotifications = Data()
+    @AppStorage("seenMarketNotifications") private var seenNotifications = Data()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -1067,7 +1438,7 @@ private struct MarketNotificationsView: View {
             }
             .padding(.horizontal, 16)
 
-            if alerts.isEmpty {
+            if alerts.isEmpty && lowCrowdAlerts.isEmpty {
                 GeometryReader { geometry in
                     ScrollView(showsIndicators: false) {
                         VStack(spacing: 16) {
@@ -1099,7 +1470,34 @@ private struct MarketNotificationsView: View {
 
                 ScrollView(showsIndicators: false) {
                     LazyVStack(alignment: .leading, spacing: 16) {
-                        ForEach(alerts, id: \.marketName) { alert in
+                        ForEach(lowCrowdAlerts) { alert in
+                            HStack(alignment: .top, spacing: 12) {
+                                Image(systemName: "bell.badge")
+                                    .font(.system(size: 20, weight: .medium))
+                                    .foregroundStyle(AppColors.primary)
+                                    .frame(width: 48, height: 48)
+                                    .background(Color(hex: 0xE4EDFF), in: RoundedRectangle(cornerRadius: 16))
+                                    .accessibilityHidden(true)
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Notification set for \(alert.marketName)")
+                                        .font(.system(size: 16, weight: .semibold))
+                                    Text("Low crowd notification enabled")
+                                        .font(.system(size: 14, weight: .medium))
+                                    Text("Notification preference saved")
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundStyle(AppColors.secondaryText)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .padding(16)
+                            .background(.white, in: RoundedRectangle(cornerRadius: 16))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 16)
+                                    .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                        ForEach(alerts, id: \.notificationID) { alert in
                             HStack(alignment: .top, spacing: 12) {
                                 Image(systemName: "bell.badge")
                                     .font(.system(size: 20, weight: .medium))
@@ -1140,19 +1538,26 @@ private struct MarketNotificationsView: View {
         .onAppear {
             let cleared = Set((try? JSONDecoder().decode([String].self, from: clearedNotifications)) ?? [])
             alerts = MarketAlertWindow.allSaved().reversed().filter { !cleared.contains($0.notificationID) }
+            lowCrowdAlerts = LowCrowdNotification.allSaved().reversed().filter { !cleared.contains($0.notificationID) }
+            seenNotifications = MarketNotificationReadState.markingSeen(
+                notificationIDs: alerts.map(\.notificationID) + lowCrowdAlerts.map(\.notificationID),
+                seen: seenNotifications
+            )
         }
         .alert("Clear notifications?", isPresented: $showsClearConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Clear notifications", role: .destructive) {
                 var cleared = Set((try? JSONDecoder().decode([String].self, from: clearedNotifications)) ?? [])
                 cleared.formUnion(alerts.map(\.notificationID))
+                cleared.formUnion(lowCrowdAlerts.map(\.notificationID))
                 if let data = try? JSONEncoder().encode(Array(cleared)) {
                     clearedNotifications = data
                     alerts = []
+                    lowCrowdAlerts = []
                 }
             }
         } message: {
-            Text("This will clear all notifications from this list. Your saved market alert times will stay unchanged.")
+            Text("This will clear all notifications from this list. Your saved market alert times and low crowd preferences will stay unchanged.")
         }
     }
 
@@ -1198,17 +1603,23 @@ private struct MarketAlertWindow: Codable {
     let marketName: String
     let fromMinutes: Int
     let toMinutes: Int
+    var placeID: String? = nil
     var savedAt: Date? = Date()
 
     var notificationID: String {
-        "\(marketName)|\(fromMinutes)|\(toMinutes)|\(savedAt?.timeIntervalSince1970 ?? 0)"
+        "\(placeID ?? marketName)|\(fromMinutes)|\(toMinutes)|\(savedAt?.timeIntervalSince1970 ?? 0)"
     }
 
     func save() {
         let key = "marketAlertWindows"
         let existing = UserDefaults.standard.data(forKey: key)
         var windows = existing.flatMap { try? JSONDecoder().decode([Self].self, from: $0) } ?? []
-        windows.removeAll { $0.marketName == marketName }
+        windows.removeAll { record in
+            if let placeID {
+                return record.placeID == placeID || (record.placeID == nil && record.marketName == marketName)
+            }
+            return record.placeID == nil && record.marketName == marketName
+        }
         windows.append(self)
         if let data = try? JSONEncoder().encode(windows) {
             UserDefaults.standard.set(data, forKey: key)
@@ -1221,17 +1632,38 @@ private struct MarketAlertWindow: Codable {
         return windows
     }
 
-    static func saved(for marketName: String) -> Self? {
-        allSaved().first { $0.marketName == marketName }
+    static func saved(for marketName: String, placeID: String? = nil) -> Self? {
+        let windows = allSaved()
+        if let placeID, let saved = windows.first(where: { $0.placeID == placeID }) { return saved }
+        return windows.first { $0.placeID == nil && $0.marketName == marketName }
     }
 }
 
 private struct MarketAlertSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var details = MarketDetailsStore.shared
     let market: MarketSearchResult
     @State private var fromMinutes = 130
     @State private var toMinutes = 790
     @State private var isSaved = false
+
+    private var alertHours: MarketAlertHours? {
+        details.statuses[market.id].flatMap { MarketAlertHours(status: $0) }
+    }
+
+    private var canSave: Bool {
+        alertHours?.permits(from: fromMinutes, to: toMinutes) == true
+    }
+
+    private func adjustSelection() {
+        guard let hours = alertHours, let first = hours.ranges.first else { return }
+        fromMinutes = hours.adjusted(fromMinutes)
+        toMinutes = hours.adjusted(toMinutes)
+        if !hours.permits(from: fromMinutes, to: toMinutes) {
+            fromMinutes = first.lowerBound
+            toMinutes = first.upperBound
+        }
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -1251,10 +1683,17 @@ private struct MarketAlertSheet: View {
         .presentationDragIndicator(.hidden)
         .presentationCornerRadius(32)
         .onAppear {
-            if let saved = MarketAlertWindow.saved(for: market.name) {
+            if let saved = MarketAlertWindow.saved(for: market.name, placeID: market.resolvedPlaceID) {
                 fromMinutes = saved.fromMinutes
                 toMinutes = saved.toMinutes
             }
+            adjustSelection()
+        }
+        .task {
+            if let placeID = market.resolvedPlaceID { await details.load(placeID: placeID) }
+        }
+        .onChange(of: alertHours) { _, _ in
+            adjustSelection()
         }
     }
 
@@ -1266,21 +1705,43 @@ private struct MarketAlertSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 40)
 
-            VStack(alignment: .leading, spacing: 12) {
-                Text("From")
-                    .font(.system(size: 16, weight: .semibold))
-                MarketTimeWheel(minutesSinceMidnight: $fromMinutes, label: "From")
-            }
-            VStack(alignment: .leading, spacing: 12) {
-                Text("To")
-                    .font(.system(size: 16, weight: .semibold))
-                MarketTimeWheel(minutesSinceMidnight: $toMinutes, label: "To")
+            if let hours = alertHours, !hours.ranges.isEmpty {
+                Text("Market hours today: \(hours.label)")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(AppColors.secondaryText)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("From")
+                        .font(.system(size: 16, weight: .semibold))
+                    MarketTimeWheel(minutesSinceMidnight: $fromMinutes, label: "From", allowedHours: hours.hours)
+                }
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("To")
+                        .font(.system(size: 16, weight: .semibold))
+                    MarketTimeWheel(minutesSinceMidnight: $toMinutes, label: "To", allowedHours: hours.hours)
+                }
+                if !canSave {
+                    Text("Choose an end time after the start time, within one market opening period.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(AppColors.secondaryText)
+                }
+            } else if alertHours?.ranges.isEmpty == true {
+                Text("This market is closed today. Alerts are available during market hours.")
+                    .foregroundStyle(AppColors.secondaryText)
+            } else if details.statuses[market.id] == nil && market.resolvedPlaceID != nil {
+                ProgressView("Loading market hours…")
+            } else {
+                Text("Market hours are unavailable. Please try again later.")
+                    .foregroundStyle(AppColors.secondaryText)
             }
             Spacer(minLength: 8)
             actionButton("Set Alert") {
-                MarketAlertWindow(marketName: market.name, fromMinutes: fromMinutes, toMinutes: toMinutes).save()
+                guard canSave else { return }
+                MarketAlertWindow(marketName: market.name, fromMinutes: fromMinutes, toMinutes: toMinutes, placeID: market.resolvedPlaceID).save()
                 isSaved = true
             }
+            .disabled(!canSave)
+            .opacity(canSave ? 1 : 0.45)
         }
         .foregroundStyle(.black)
         .padding(.horizontal, 20)
@@ -1331,7 +1792,7 @@ private struct MarketAlertSheet: View {
             Text("Alert Set")
                 .font(.system(size: 24, weight: .semibold))
                 .padding(.top, 32)
-            Text("Your notification window for \(market.name) has been saved.")
+            Text("Notification set from \(MarketCrowdSnapshot.timeLabel(fromMinutes)) to \(MarketCrowdSnapshot.timeLabel(toMinutes))")
                 .font(.system(size: 16, weight: .medium))
                 .multilineTextAlignment(.center)
                 .padding(.top, 16)
@@ -1358,6 +1819,17 @@ private struct MarketAlertSheet: View {
 private struct MarketTimeWheel: View {
     @Binding var minutesSinceMidnight: Int
     let label: String
+    let allowedHours: [Int]
+
+    private var availablePeriods: [Int] {
+        Array(Set(allowedHours.map { $0 / 12 })).sorted()
+    }
+
+    private var availableHours: [Int] {
+        allowedHours.filter { $0 / 12 == minutesSinceMidnight / 720 }.map {
+            $0 % 12 == 0 ? 12 : $0 % 12
+        }
+    }
 
     private var hour: Binding<Int> {
         Binding(get: {
@@ -1376,22 +1848,26 @@ private struct MarketTimeWheel: View {
 
     private var period: Binding<Int> {
         Binding(get: { minutesSinceMidnight / 720 }, set: { value in
-            minutesSinceMidnight = value * 720 + minutesSinceMidnight % 720
+            let requestedHour = value * 12 + (minutesSinceMidnight / 60) % 12
+            let hours = allowedHours.filter { $0 / 12 == value }
+            guard let closest = hours.min(by: { abs($0 - requestedHour) < abs($1 - requestedHour) }) else { return }
+            minutesSinceMidnight = closest * 60 + minutesSinceMidnight % 60
         })
     }
 
     var body: some View {
         HStack(spacing: 20) {
             MarketTimeColumn(
-                values: Array(1...12), selection: hour, label: "\(label) hour",
+                values: availableHours, selection: hour, label: "\(label) hour",
                 display: { String(format: "%02d", $0) }
             )
+            .id(availableHours)
             MarketTimeColumn(
                 values: Array(0..<60), selection: minute, label: "\(label) minute",
                 display: { String(format: "%02d", $0) }
             )
             MarketTimeColumn(
-                values: [0, 1], selection: period, label: "\(label) AM or PM",
+                values: availablePeriods, selection: period, label: "\(label) AM or PM",
                 display: { $0 == 0 ? "AM" : "PM" }
             )
         }
