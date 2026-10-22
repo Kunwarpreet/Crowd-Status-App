@@ -59,6 +59,7 @@ private extension Color {
 
 struct HomeView: View {
     @State private var selectedMarket: MarketSearchResult?
+    @State private var isStartingHome = true
     @AppStorage("marketAlertWindows") private var savedAlertWindows = Data()
     @AppStorage("lowCrowdNotificationConfirmations") private var savedLowCrowdNotifications = Data()
     @AppStorage("seenMarketNotifications") private var seenNotifications = Data()
@@ -90,6 +91,9 @@ struct HomeView: View {
     }
     private var popularMarkets: [PopularMarket] {
         homeMarkets.popular.filter { details.isAvailableForHome(placeID: $0.id) }.map { PopularMarket(id: $0.id, name: $0.name, imageName: "", livePlace: $0) }
+    }
+    private var isDiscoveringMarkets: Bool {
+        isStartingHome || homeMarkets.isLoading || cityStore.isLocating
     }
     private func refreshMarkets(force: Bool = false) async {
         await homeMarkets.refresh(city: cityStore.city, location: cityStore.location, hasResolvedCity: cityStore.hasResolvedCity, force: force)
@@ -124,7 +128,10 @@ struct HomeView: View {
                 do { try await Task.sleep(for: .seconds(300)) } catch { return }
             }
         }
-        .task(id: locationID) { await refreshMarkets() }
+        .task(id: locationID) {
+            await refreshMarkets()
+            isStartingHome = false
+        }
         .task(id: "\(scenePhase)|\(homeMarkets.nearby.map(\.id))|\(homeMarkets.popular.map(\.id))") {
             guard scenePhase == .active else { return }
             while !Task.isCancelled {
@@ -230,9 +237,16 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 32) {
                 VStack(alignment: .leading, spacing: 24) {
                     sectionHeading("Nearby", subtitle: "Markets closest to you · Within 8 km")
-                    if homeMarkets.isLoading || cityStore.isLocating { ProgressView("Finding markets…") }
-                    if let error = homeMarkets.errorMessage { Text(error).font(.footnote).foregroundStyle(.secondary) }
-                    if !homeMarkets.isLoading && !cityStore.isLocating && nearbyMarkets.isEmpty {
+                    if isDiscoveringMarkets && nearbyMarkets.isEmpty {
+                        VStack(spacing: 20) {
+                            ForEach(0..<2) { _ in NearbyMarketSkeleton() }
+                        }
+                        .modifier(MarketSkeletonShimmer())
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Loading nearby markets")
+                    }
+                    if !isDiscoveringMarkets, let error = homeMarkets.errorMessage { Text(error).font(.footnote).foregroundStyle(.secondary) }
+                    if !isDiscoveringMarkets && nearbyMarkets.isEmpty && homeMarkets.errorMessage == nil {
                         Text(cityStore.location == nil ? "Enable location to find nearby markets, or tap your location above to choose a city." : "No nearby markets found within 8 km.")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
@@ -258,12 +272,20 @@ struct HomeView: View {
 
             VStack(alignment: .leading, spacing: 24) {
                 sectionHeading("Popular", subtitle: cityStore.hasResolvedCity ? "Most reviewed markets in \(cityStore.cityName)" : "Choose your location to discover popular markets")
-                if !homeMarkets.isLoading && cityStore.hasResolvedCity && popularMarkets.isEmpty {
+                if !isDiscoveringMarkets && cityStore.hasResolvedCity && popularMarkets.isEmpty && homeMarkets.errorMessage == nil {
                     Text("No popular markets found. Try another city.").font(.footnote).foregroundStyle(.secondary)
                 }
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 16) {
+                        if isDiscoveringMarkets && popularMarkets.isEmpty {
+                            HStack(spacing: 16) {
+                                ForEach(0..<3) { _ in PopularMarketSkeleton() }
+                            }
+                            .modifier(MarketSkeletonShimmer())
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("Loading popular markets")
+                        }
                         ForEach(popularMarkets) { market in
                             Button {
                                 selectedMarket = market.detail
@@ -289,6 +311,106 @@ struct HomeView: View {
             Text(subtitle)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(AppColors.secondaryText)
+        }
+    }
+}
+
+private struct SkeletonBlock: View {
+    var width: CGFloat? = nil
+    let height: CGFloat
+    var cornerRadius: CGFloat = 4
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius)
+            .fill(Color(hex: 0xE9EDF3))
+            .frame(width: width, height: height)
+    }
+}
+
+private struct NearbyMarketSkeleton: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            SkeletonBlock(width: 72, height: 72, cornerRadius: 8)
+            VStack(alignment: .leading, spacing: 10) {
+                SkeletonBlock(height: 16)
+                SkeletonBlock(width: 88, height: 10)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(spacing: 10) {
+                SkeletonBlock(width: 54, height: 26, cornerRadius: 13)
+                SkeletonBlock(width: 38, height: 10)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, minHeight: 98, alignment: .leading)
+        .background(.white, in: RoundedRectangle(cornerRadius: 16))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color(hex: 0xF2F2F7), lineWidth: 1)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+private struct PopularMarketSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SkeletonBlock(width: 131, height: 76, cornerRadius: 0)
+            VStack(alignment: .leading, spacing: 8) {
+                SkeletonBlock(width: 100, height: 12)
+                SkeletonBlock(width: 76, height: 10)
+            }
+            .padding(8)
+        }
+        .frame(width: 131, alignment: .leading)
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color(hex: 0xF2F2F7), lineWidth: 1)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+private struct MarketSkeletonShimmer: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var startedAt = Date()
+
+    func body(content: Content) -> some View {
+        Group {
+            if reduceMotion {
+                content
+            } else {
+                TimelineView(.animation(minimumInterval: 1.0 / 30, paused: scenePhase != .active)) { timeline in
+                    // A local clock restarts the pulse and sweep for each loading appearance.
+                    let elapsed = max(0, timeline.date.timeIntervalSince(startedAt))
+                    let progress = elapsed.truncatingRemainder(dividingBy: 1.4) / 1.4
+                    let opacity = 0.85 + 0.15 * cos(elapsed * .pi * 2 / 1.4)
+                    content
+                        .opacity(opacity)
+                        .overlay {
+                            GeometryReader { geometry in
+                                LinearGradient(
+                                    colors: [.clear, .white.opacity(0.9), .clear],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                                .frame(width: geometry.size.width * 0.55)
+                                .offset(x: geometry.size.width * (progress * 1.55 - 0.55))
+                            }
+                            .mask(content)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                        }
+                }
+            }
+        }
+        .onAppear { startedAt = Date() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { startedAt = Date() }
         }
     }
 }
@@ -499,28 +621,6 @@ struct MarketSearchResult: Identifiable, Hashable {
     var livePlace: GoogleMarketPlace? = nil
     var resolvedPlaceID: String? { livePlace?.id ?? GoogleMarketHours.placeIDs[name] }
     var id: String { resolvedPlaceID ?? name }
-
-    // Sample editorial copy and visit details, pending a live market data source.
-    var aboutDescription: String {
-        if livePlace != nil { return "Explore \(name) and plan your visit using the opening hours and directions below." }
-        return switch name {
-        case "Raja Market":
-            "Raja Market is most famous for its vast wholesale and retail selection of imitation and traditional jewelry, including Kundan sets, temple jewelry, Rajasthani handmade pieces, and antique silver items."
-        case "KR Market":
-            "Explore KR Market’s busy shopping lanes, browse the stalls, and discover something new on your next visit. Check the crowd before you leave and use the directions below to plan your trip."
-        case "Gandhi Bazaar Flower Market":
-            "Browse flower stalls at Gandhi Bazaar Flower Market and plan your visit with the opening hours and directions below."
-        case "Russell Market":
-            "Browse Russell Market’s stalls and explore the surrounding shopping area at your own pace. Check today’s crowd and plan your route before heading out for your next market visit."
-        case "Jayanagar Market":
-            "Explore Jayanagar Market, browse the shops, and enjoy a relaxed shopping trip. Use the crowd information to plan your visit and the directions below to find your way to the market."
-        case "Sunday Market":
-            "Make time for a weekend visit to Sunday Market, explore the stalls, and browse for your next find. Check the crowd before you set off and use the map to plan your route."
-        default:
-            "Explore \(name), browse the shops, and plan your next visit with the crowd information and directions below."
-        }
-    }
-
 }
 
 private extension NearbyMarket {
@@ -766,6 +866,16 @@ private struct MarketDetailView: View {
     let market: MarketSearchResult
 
     private var place: GoogleMarketPlace? { details.places[market.id] ?? market.livePlace }
+    private var marketDescription: MarketDescription? {
+        MarketDescriptions.description(
+            placeID: market.resolvedPlaceID,
+            name: place?.name ?? market.name,
+            address: place?.formattedAddress,
+            editorialSummary: place?.editorialSummary?.text,
+            types: place?.types ?? [],
+            primaryTypeDisplayName: place?.primaryTypeDisplayName?.text
+        )
+    }
     private var marketPhotos: [GoogleMarketPlace.Photo] { Array((place?.photos ?? []).prefix(4)) }
     private var addressLabel: String {
         place?.formattedAddress ?? (details.failures.contains(market.id) ? "Address unavailable" : "Loading address…")
@@ -1189,10 +1299,26 @@ private struct MarketDetailView: View {
     private var aboutMarket: some View {
         VStack(alignment: .leading, spacing: 8) {
             sectionHeading("About")
-            Text(place?.editorialSummary?.text ?? market.aboutDescription)
-                .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(.black)
-                .fixedSize(horizontal: false, vertical: true)
+            if let description = marketDescription {
+                Text(description.text)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(.black)
+                    .fixedSize(horizontal: false, vertical: true)
+                Link(destination: description.sourceURL) {
+                    Label("Source: \(description.sourceName)", systemImage: "arrow.up.right")
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(minHeight: 44, alignment: .leading)
+                }
+                .tint(AppColors.primary)
+                .accessibilityHint("Opens the source for this market description")
+            } else {
+                Text(market.resolvedPlaceID != nil && details.places[market.id] == nil && !details.failures.contains(market.id)
+                     ? "Loading market description…"
+                     : "A verified description of what this market is known for isn’t available yet.")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(AppColors.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 16) {
                 GridRow {

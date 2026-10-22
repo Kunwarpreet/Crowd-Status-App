@@ -239,3 +239,43 @@ Home validates market details before showing cards: name, address, opening statu
 Nearby badges display Low/Mid/High. Home and market details share the same driving-route distance from the current coordinates where Apple Maps routing is available; both use straight-line distance while routing is unavailable. Distances always use km (1.2 km / 0.45 km). Both screens track location changes of roughly 100m while active and recalculate routing, refreshing estimates every five minutes. Tracking stops when neither screen is active. Home omits the crowd demo estimates sentence; market details retain their Demo data badge and simulated percentage labels.
 
 Home caches the last successful Nearby/Popular lists in a shared session store. Returning from details reuses those results without clearing cards or re-running discovery. A city change, gaining/losing coordinates, or moving at least 100m triggers discovery again; pull-to-refresh can explicitly reload. Refresh commits both lists together and preserves existing cards while loading. Home cards show distance only, with no car icon or driving-time row.
+
+### Market descriptions
+
+The market detail About section uses researched descriptions from
+`MarketDescriptions.swift`, each with a visible source link. Checked on
+22 October 2026. The catalog contains 19 entries across Bengaluru and Amritsar.
+The approved Justdial wording is used for Raja Market, Russell Market and the
+separate KR Market Flower Market listing. Raja's source is explicitly labelled
+as review highlights. The larger KR Market retains its broader, LBB-backed
+flower-and-produce description so the flower-market listing is not conflated
+with the whole market.
+
+Other researched entries cover Gandhi Bazaar, Jayanagar 4th Block, Chickpet,
+Hall Bazaar, Katra Jaimal Singh, Guru Bazaar, Shastri Market, Katra Ahluwalia,
+Pratap Bazaar, Tahli Wala Bazaar, Mai Sewa Wala Bazaar, Dal Mandi, Mishri Bazaar,
+Urban Haat and Lawrence Road. Sources include Incredible India, LBB,
+Karnataka.com and The Tribune. Each entry links to its supporting page.
+
+Descriptions match an existing exact Google Place ID or an explicitly supported
+market name together with the city in that listing's address. They never use the
+user's current city to identify a market. Every other discovered listing uses
+its existing Google Places editorial summary, unchanged, when supplied. If no
+summary is supplied, About shows the listing's actual category and address,
+with a Google Maps source link. It explicitly states that a main product
+specialty is not supplied. This fallback covers new markets and cities without
+inventing specialties from market names. It is a listing overview, not a
+researched claim about what that market is famous for.
+
+The primary category label is fetched in the existing detail request. No extra
+API calls or credentials are required. Unknown categories are not shown as raw
+API identifiers. No descriptions are scraped from Justdial at runtime; its
+pages often contain only generic business copy, so it cannot guarantee a
+specialty description for every market. Missing listing identity retains the
+loading/unavailable state. The ambiguous Sunday Market name has no researched
+fallback, but real Sunday Market listings can use their own Google data.
+
+```sh
+swiftc -module-cache-path /tmp/CrowdStatusSwiftModuleCache Sources/Features/Home/MarketDescriptions.swift Tests/MarketDescriptionChecks.swift -o /tmp/CrowdStatusDescriptionChecks
+/tmp/CrowdStatusDescriptionChecks
+```

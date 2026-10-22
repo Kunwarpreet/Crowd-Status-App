@@ -20,6 +20,7 @@ struct GoogleMarketPlace: Decodable, Hashable, Identifiable {
     let location: Coordinate?
     let viewport: Viewport?
     let types: [String]?
+    let primaryTypeDisplayName: LocalizedText?
     let rating: Double?
     let userRatingCount: Int?
     let nationalPhoneNumber: String?
@@ -203,7 +204,7 @@ enum GoogleMarketDiscovery {
         }
     }
     static func details(placeID: String) async throws -> (GoogleMarketPlace, MarketOpeningStatus) {
-        let request = try request(url: URL(string: "https://places.googleapis.com/v1/places/\(placeID)?languageCode=en")!, fields: "id,displayName,formattedAddress,location,types,rating,nationalPhoneNumber,internationalPhoneNumber,editorialSummary,photos,businessStatus,currentOpeningHours,regularOpeningHours,timeZone")
+        let request = try request(url: URL(string: "https://places.googleapis.com/v1/places/\(placeID)?languageCode=en")!, fields: "id,displayName,formattedAddress,location,types,primaryTypeDisplayName,rating,nationalPhoneNumber,internationalPhoneNumber,editorialSummary,photos,businessStatus,currentOpeningHours,regularOpeningHours,timeZone")
         let data = try await data(for: request)
         let place = try JSONDecoder().decode(GoogleMarketPlace.self, from: data)
         guard place.id == placeID else { throw RequestError.wrongPlace }

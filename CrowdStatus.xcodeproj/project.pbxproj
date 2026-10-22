@@ -7,31 +7,33 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A10000000000000000000012 /* MarketCrowdData.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* MarketCrowdData.swift */; };
-		A10000000000000000000011 /* MarketDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* MarketDiscovery.swift */; };
-		A10000000000000000000008 /* LowCrowdNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* LowCrowdNotification.swift */; };
-		A10000000000000000000007 /* MarketAddresses.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* MarketAddresses.swift */; };
-		A10000000000000000000006 /* MarketOpeningHours.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* MarketOpeningHours.swift */; };
 		A10000000000000000000001 /* CrowdStatusApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* CrowdStatusApp.swift */; };
 		A10000000000000000000002 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* HomeView.swift */; };
 		A10000000000000000000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* Assets.xcassets */; };
 		A10000000000000000000004 /* AppRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* AppRootView.swift */; };
 		A10000000000000000000005 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* AppTheme.swift */; };
+		A10000000000000000000006 /* MarketOpeningHours.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* MarketOpeningHours.swift */; };
+		A10000000000000000000007 /* MarketAddresses.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* MarketAddresses.swift */; };
+		A10000000000000000000008 /* LowCrowdNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* LowCrowdNotification.swift */; };
+		A10000000000000000000011 /* MarketDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* MarketDiscovery.swift */; };
+		A10000000000000000000012 /* MarketCrowdData.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* MarketCrowdData.swift */; };
+		A10000000000000000000013 /* MarketDescriptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* MarketDescriptions.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		A20000000000000000000012 /* MarketCrowdData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketCrowdData.swift; sourceTree = "<group>"; };
-		A20000000000000000000011 /* MarketDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketDiscovery.swift; sourceTree = "<group>"; };
-		A20000000000000000000010 /* LowCrowdNotification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LowCrowdNotification.swift; sourceTree = "<group>"; };
-		A20000000000000000000009 /* MarketAddresses.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketAddresses.swift; sourceTree = "<group>"; };
-		A20000000000000000000008 /* App.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configuration/App.xcconfig; sourceTree = SOURCE_ROOT; };
-		A20000000000000000000007 /* MarketOpeningHours.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketOpeningHours.swift; sourceTree = "<group>"; };
 		A20000000000000000000001 /* CrowdStatusApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrowdStatusApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		A20000000000000000000003 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A20000000000000000000004 /* CrowdStatus.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CrowdStatus.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000005 /* AppRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRootView.swift; sourceTree = "<group>"; };
 		A20000000000000000000006 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
+		A20000000000000000000007 /* MarketOpeningHours.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketOpeningHours.swift; sourceTree = "<group>"; };
+		A20000000000000000000008 /* Configuration/App.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configuration/App.xcconfig; sourceTree = SOURCE_ROOT; };
+		A20000000000000000000009 /* MarketAddresses.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketAddresses.swift; sourceTree = "<group>"; };
+		A20000000000000000000010 /* LowCrowdNotification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LowCrowdNotification.swift; sourceTree = "<group>"; };
+		A20000000000000000000011 /* MarketDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketDiscovery.swift; sourceTree = "<group>"; };
+		A20000000000000000000012 /* MarketCrowdData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketCrowdData.swift; sourceTree = "<group>"; };
+		A20000000000000000000013 /* MarketDescriptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketDescriptions.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -45,12 +47,21 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		3C7F9366308A01450044CC2D /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000008 /* Configuration/App.xcconfig */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
 		A30000000000000000000001 = {
 			isa = PBXGroup;
 			children = (
 				A30000000000000000000002 /* Sources */,
 				A20000000000000000000003 /* Assets.xcassets */,
 				A30000000000000000000003 /* Products */,
+				3C7F9366308A01450044CC2D /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -106,6 +117,7 @@
 				A20000000000000000000010 /* LowCrowdNotification.swift */,
 				A20000000000000000000011 /* MarketDiscovery.swift */,
 				A20000000000000000000012 /* MarketCrowdData.swift */,
+				A20000000000000000000013 /* MarketDescriptions.swift */,
 			);
 			path = Home;
 			sourceTree = "<group>";
@@ -137,7 +149,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastUpgradeCheck = 2700;
+				LastUpgradeCheck = 2710;
 				TargetAttributes = {
 					A40000000000000000000001 = {
 						CreatedOnToolsVersion = 16.0;
@@ -185,6 +197,7 @@
 				A10000000000000000000008 /* LowCrowdNotification.swift in Sources */,
 				A10000000000000000000011 /* MarketDiscovery.swift in Sources */,
 				A10000000000000000000012 /* MarketCrowdData.swift in Sources */,
+				A10000000000000000000013 /* MarketDescriptions.swift in Sources */,
 				A10000000000000000000004 /* AppRootView.swift in Sources */,
 				A10000000000000000000005 /* AppTheme.swift in Sources */,
 			);
@@ -227,6 +240,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = K6MMYBFA8C;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -289,6 +303,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = K6MMYBFA8C;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -306,12 +321,11 @@
 		};
 		A80000000000000000000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = A20000000000000000000008 /* App.xcconfig */;
+			baseConfigurationReference = A20000000000000000000008 /* Configuration/App.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = K6MMYBFA8C;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Configuration/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Crowd Status";
@@ -331,12 +345,11 @@
 		};
 		A80000000000000000000004 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = A20000000000000000000008 /* App.xcconfig */;
+			baseConfigurationReference = A20000000000000000000008 /* Configuration/App.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = K6MMYBFA8C;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Configuration/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Crowd Status";
