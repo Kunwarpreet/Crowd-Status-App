@@ -247,7 +247,7 @@ struct HomeView: View {
                     }
                     if !isDiscoveringMarkets, let error = homeMarkets.errorMessage { Text(error).font(.footnote).foregroundStyle(.secondary) }
                     if !isDiscoveringMarkets && nearbyMarkets.isEmpty && homeMarkets.errorMessage == nil {
-                        Text(cityStore.location == nil ? "Enable location to find nearby markets, or tap your location above to choose a city." : "No nearby markets found within 8 km.")
+                        Text(cityStore.location == nil ? "Enable location to find nearby markets, or tap your location above to choose a city." : "No nearby markets with available opening hours and a phone number found within 8 km.")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
 
@@ -273,7 +273,7 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 24) {
                 sectionHeading("Popular", subtitle: cityStore.hasResolvedCity ? "Most reviewed markets in \(cityStore.cityName)" : "Choose your location to discover popular markets")
                 if !isDiscoveringMarkets && cityStore.hasResolvedCity && popularMarkets.isEmpty && homeMarkets.errorMessage == nil {
-                    Text("No popular markets found. Try another city.").font(.footnote).foregroundStyle(.secondary)
+                    Text("No popular markets with available opening hours and a phone number found. Try another city.").font(.footnote).foregroundStyle(.secondary)
                 }
 
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -656,6 +656,10 @@ private struct MarketSearchView: View {
 
     @ObservedObject private var cityStore = MarketCityStore.shared
     @StateObject private var search = MarketSearchStore()
+    @ObservedObject private var details = MarketDetailsStore.shared
+    private var availableMarkets: [GoogleMarketPlace] {
+        search.markets.filter { details.isAvailableForHome(placeID: $0.id) }
+    }
     @State private var cityText = ""
 
     private var searchID: String { "\(cityStore.city)|\(searchText)" }
@@ -713,7 +717,7 @@ private struct MarketSearchView: View {
 
             ScrollView(showsIndicators: false) {
                 LazyVStack(spacing: 16) {
-                    ForEach(search.markets) { place in
+                    ForEach(availableMarkets) { place in
                         let market = MarketSearchResult(name: place.name, imageName: "", distance: place.distance(from: cityStore.location) ?? "", livePlace: place)
                         Button {
                             isSearchFocused = false
@@ -738,15 +742,15 @@ private struct MarketSearchView: View {
                                 else { await search.search(city: cityStore.city, query: searchText) }
                             }
                         }
-                    } else if search.markets.isEmpty {
-                        Text("No markets found. Try a different name or city.")
+                    } else if availableMarkets.isEmpty {
+                        Text("No markets with available opening hours and a phone number found. Try another name or city.")
                             .font(.system(size: 14)).foregroundStyle(AppColors.secondaryText)
                     }
                     if search.nextPageToken != nil && !search.isLoading {
                         Button("Load more markets") { Task { await search.loadMore() } }
                             .font(.system(size: 14, weight: .semibold))
                     }
-                    if !search.markets.isEmpty {
+                    if !availableMarkets.isEmpty {
                         Text("Market listings from Google Maps")
                             .font(.system(size: 12)).foregroundStyle(AppColors.secondaryText)
                     }

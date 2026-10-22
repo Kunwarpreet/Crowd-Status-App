@@ -44,9 +44,14 @@ struct GoogleMarketPlace: Decodable, Hashable, Identifiable {
         return isMarket && categories.isDisjoint(with: unrelated)
     }
     var phoneURL: URL? {
-        guard let number = internationalPhoneNumber ?? nationalPhoneNumber else { return nil }
-        let normalized = number.filter { $0.isNumber || $0 == "+" }
-        return normalized.isEmpty ? nil : URL(string: "tel:\(normalized)")
+        for number in [internationalPhoneNumber, nationalPhoneNumber].compactMap({ $0 }) {
+            let normalized = number.filter { $0.isNumber || $0 == "+" }
+            let digitCount = normalized.filter(\.isNumber).count
+            guard (7...15).contains(digitCount),
+                  !normalized.dropFirst().contains("+") else { continue }
+            if let url = URL(string: "tel:\(normalized)") { return url }
+        }
+        return nil
     }
     func distance(from location: CLLocation?) -> String? {
         guard let origin = location, let coordinate = self.location else { return nil }
@@ -230,10 +235,11 @@ enum HomeMarketPresentation {
         return area.isEmpty || area.caseInsensitiveCompare(city) == .orderedSame ? city : "\(area), \(city)"
     }
     static func hasAvailableData(place: GoogleMarketPlace?, status: MarketOpeningStatus?) -> Bool {
-        guard let place, let status, status.isOpen != nil,
+        guard let place, let status, status.isOpen != nil, place.phoneURL != nil,
               let name = place.displayName?.text, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let address = place.formattedAddress, !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         return status.todayOpenIntervals() != nil
+            && status.weeklyHours().allSatisfy { $0.hours != "Unavailable" }
     }
 }
 
@@ -377,7 +383,9 @@ final class MarketSearchStore: ObservableObject {
             let page = try await GoogleMarketDiscovery.markets(city: city, query: self.query, viewport: viewport, pageToken: nil)
             try Task.checkCancellation()
             guard self.generation == generation else { return }
-            markets = GoogleMarketDiscovery.merging([], page.places ?? [])
+            let available = try await availableMarkets(in: page.places ?? [])
+            guard self.generation == generation else { return }
+            markets = GoogleMarketDiscovery.merging([], available)
             nextPageToken = page.nextPageToken
             isLoading = false
         } catch {
@@ -395,7 +403,9 @@ final class MarketSearchStore: ObservableObject {
             let page = try await GoogleMarketDiscovery.markets(city: city, query: query, viewport: viewport, pageToken: token)
             try Task.checkCancellation()
             guard self.generation == generation else { return }
-            markets = GoogleMarketDiscovery.merging(markets, page.places ?? [])
+            let available = try await availableMarkets(in: page.places ?? [])
+            guard self.generation == generation else { return }
+            markets = GoogleMarketDiscovery.merging(markets, available)
             nextPageToken = page.nextPageToken
         } catch {
             guard self.generation == generation else { return }
@@ -403,6 +413,19 @@ final class MarketSearchStore: ObservableObject {
         }
         if self.generation == generation { isLoading = false }
     }
+    private func availableMarkets(in candidates: [GoogleMarketPlace]) async throws -> [GoogleMarketPlace] {
+        var available: [GoogleMarketPlace] = []
+        for candidate in GoogleMarketDiscovery.merging([], candidates) {
+            try Task.checkCancellation()
+            await MarketDetailsStore.shared.load(placeID: candidate.id)
+            try Task.checkCancellation()
+            if MarketDetailsStore.shared.isAvailableForHome(placeID: candidate.id) {
+                available.append(MarketDetailsStore.shared.places[candidate.id] ?? candidate)
+            }
+        }
+        return available
+    }
+
 }
 
 struct HomeMarketContext {
@@ -493,26 +516,34 @@ final class MarketDetailsStore: ObservableObject {
     @Published private(set) var places: [String: GoogleMarketPlace] = [:]
     @Published private(set) var statuses: [String: MarketOpeningStatus] = [:]
     @Published private(set) var failures: Set<String> = []
-    private var loading: Set<String> = []
+    private var loading: [String: Task<Void, Never>] = [:]
     private var expires: [String: Date] = [:]
     func isAvailableForHome(placeID: String) -> Bool {
         !failures.contains(placeID) && HomeMarketPresentation.hasAvailableData(place: places[placeID], status: statuses[placeID])
     }
     func load(placeID: String) async {
-        guard !loading.contains(placeID), (expires[placeID] ?? .distantPast) <= Date() else { return }
-        loading.insert(placeID)
-        defer { loading.remove(placeID) }
-        do {
-            let (place, status) = try await GoogleMarketDiscovery.details(placeID: placeID)
-            places[placeID] = place
-            statuses[placeID] = status
-            failures.remove(placeID)
-            expires[placeID] = status.expiresAt
-        } catch {
-            statuses[placeID] = .unavailable
-            failures.insert(placeID)
-            expires[placeID] = Date().addingTimeInterval(30)
+        // Home and search must await the same request before validating a listing.
+        if let task = loading[placeID] {
+            await task.value
+            return
         }
+        guard (expires[placeID] ?? .distantPast) <= Date() else { return }
+        let task = Task { @MainActor in
+            do {
+                let (place, status) = try await GoogleMarketDiscovery.details(placeID: placeID)
+                places[placeID] = place
+                statuses[placeID] = status
+                failures.remove(placeID)
+                expires[placeID] = status.expiresAt
+            } catch {
+                statuses[placeID] = .unavailable
+                failures.insert(placeID)
+                expires[placeID] = Date().addingTimeInterval(30)
+            }
+        }
+        loading[placeID] = task
+        await task.value
+        loading[placeID] = nil
     }
 }
 

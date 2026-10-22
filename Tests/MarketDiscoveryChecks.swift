@@ -48,13 +48,28 @@ struct MarketDiscoveryChecks {
         precondition(HomeMarketPresentation.locationLabel(area: "Shivaji Nagar", city: "Bengaluru") == "Shivaji Nagar, Bengaluru")
         precondition(HomeMarketPresentation.locationLabel(area: nil, city: "Bengaluru") == "Bengaluru")
         precondition(HomeMarketPresentation.locationLabel(area: " Bengaluru ", city: "Bengaluru") == "Bengaluru")
-        let knownClosed = MarketOpeningStatus(isOpen: false, nextOpening: nil, nextClosing: nil, expiresAt: .distantFuture, currentPeriods: [], regularPeriods: [])
+        let weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        let knownClosed = MarketOpeningStatus(isOpen: false, nextOpening: nil, nextClosing: nil, expiresAt: .distantFuture, weekdayDescriptions: weekdays.map { "\($0): Closed" }, currentPeriods: [], regularPeriods: [])
         precondition(HomeMarketPresentation.hasAvailableData(place: first, status: knownClosed))
         precondition(!HomeMarketPresentation.hasAvailableData(place: first, status: .unavailable))
         precondition(!HomeMarketPresentation.hasAvailableData(place: unavailable, status: knownClosed))
         precondition(!HomeMarketPresentation.hasAvailableData(place: first, status: nil))
         let noSchedule = MarketOpeningStatus(isOpen: true, nextOpening: nil, nextClosing: nil, expiresAt: .distantFuture)
         precondition(!HomeMarketPresentation.hasAvailableData(place: first, status: noSchedule))
+        let noPhone = try JSONDecoder().decode(GoogleMarketPlace.self, from: Data("""
+        {"id":"no-phone","displayName":{"text":"No Phone Market"},"formattedAddress":"Market Road"}
+        """.utf8))
+        precondition(!HomeMarketPresentation.hasAvailableData(place: noPhone, status: knownClosed))
+        let invalidPhone = try JSONDecoder().decode(GoogleMarketPlace.self, from: Data("""
+        {"id":"bad-phone","internationalPhoneNumber":"+","nationalPhoneNumber":"123"}
+        """.utf8))
+        precondition(invalidPhone.phoneURL == nil)
+        let nationalPhone = try JSONDecoder().decode(GoogleMarketPlace.self, from: Data("""
+        {"id":"national-phone","internationalPhoneNumber":"","nationalPhoneNumber":"0183 234 5678"}
+        """.utf8))
+        precondition(nationalPhone.phoneURL?.absoluteString == "tel:01832345678")
+        let partialSchedule = MarketOpeningStatus(isOpen: false, nextOpening: nil, nextClosing: nil, expiresAt: .distantFuture, weekdayDescriptions: ["Monday: Closed"], currentPeriods: [])
+        precondition(!HomeMarketPresentation.hasAvailableData(place: first, status: partialSchedule))
         precondition(MarketJourney.distanceLabel(1200) == "1.2 km")
         precondition(MarketJourney.distanceLabel(450) == "0.45 km")
         precondition(MarketJourney(distance: 1200, travelTime: 601).timeLabel == "11 min drive")
