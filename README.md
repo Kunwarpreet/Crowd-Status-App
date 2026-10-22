@@ -20,6 +20,13 @@ Google pages and deduplicates by Place ID. Google limits results per query, so
 this is city-wide discovery, not an exhaustive municipal directory. A more
 specific name search can discover listings missing from the broad city query.
 
+Home and search require a Google Places category of `market`, `farmers_market`,
+or `flea_market`, including when validating the fetched listing details. A name
+containing “market”, “bazaar”, or “bazar” alone does not qualify, so shops and
+outlets without a market category are excluded. Listings with missing categories
+are also excluded. This depends on Google's classification and may omit genuine
+markets categorized only as shopping malls or generic points of interest.
+
 Every result opens its own market detail screen using its Google Place ID.
 Addresses, rating, phone, editorial description when available, up to four photos,
 current status, weekly hours, and directions come from that same listing. Photo

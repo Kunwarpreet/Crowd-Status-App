@@ -18,7 +18,23 @@ struct MarketDiscoveryChecks {
         let untyped = try place("plain", "Malleshwaram Market", "\"point_of_interest\"")
         let shop = try place("shop", "Supermarket", "\"supermarket\"")
         let merged = GoogleMarketDiscovery.merging([first], [first, second, transit, mall, untyped, shop])
-        precondition(merged.map(\.id) == ["one", "two", "mall", "plain"])
+        precondition(merged.map(\.id) == ["one", "two"])
+        // These are synthetic fixtures, not an audit of live business names.
+        let outlets = try [
+            place("clothing", "Fashion Market", "\"clothing_store\""),
+            place("electronics", "Electronics Bazaar", "\"electronics_store\""),
+            place("outlet", "Factory Outlet Market", "\"store\""),
+            place("food", "Fresh Market", "\"grocery_store\""),
+            place("generic", "Shop Bazar", "\"point_of_interest\"")
+        ]
+        precondition(outlets.allSatisfy { !$0.isMarket && !$0.isHomeMarket })
+        let missingCategory = try JSONDecoder().decode(GoogleMarketPlace.self, from: Data("""
+        {"id":"no-category","displayName":{"text":"City Market"}}
+        """.utf8))
+        precondition(!missingCategory.isMarket)
+        let farmers = try place("farmers", "Growers Cooperative", "\"farmers_market\"")
+        let flea = try place("flea", "Weekend Stalls", "\"flea_market\"")
+        precondition(GoogleMarketDiscovery.merging([], outlets + [farmers, flea]).map(\.id) == ["farmers", "flea"])
         precondition(first.phoneURL?.absoluteString == "tel:+919742638865")
         precondition(first.distance(from: nil) == nil)
         precondition(first.distance(from: CLLocation(latitude: 12.97, longitude: 77.59)) == "0.00 km")
@@ -51,6 +67,8 @@ struct MarketDiscoveryChecks {
         let weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
         let knownClosed = MarketOpeningStatus(isOpen: false, nextOpening: nil, nextClosing: nil, expiresAt: .distantFuture, weekdayDescriptions: weekdays.map { "\($0): Closed" }, currentPeriods: [], regularPeriods: [])
         precondition(HomeMarketPresentation.hasAvailableData(place: first, status: knownClosed))
+        precondition(outlets.allSatisfy { !HomeMarketPresentation.hasAvailableData(place: $0, status: knownClosed) })
+        precondition(!HomeMarketPresentation.hasAvailableData(place: untyped, status: knownClosed))
         precondition(!HomeMarketPresentation.hasAvailableData(place: first, status: .unavailable))
         precondition(!HomeMarketPresentation.hasAvailableData(place: unavailable, status: knownClosed))
         precondition(!HomeMarketPresentation.hasAvailableData(place: first, status: nil))

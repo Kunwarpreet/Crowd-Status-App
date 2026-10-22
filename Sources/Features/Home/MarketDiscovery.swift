@@ -30,18 +30,11 @@ struct GoogleMarketPlace: Decodable, Hashable, Identifiable {
 
     var name: String { displayName?.text ?? "Market" }
     var isMarket: Bool {
-        let categories = Set(types ?? [])
-        if !categories.isDisjoint(with: ["market", "farmers_market", "flea_market"]) { return true }
-        let words = name.lowercased()
-        let hasMarketName = words.range(of: #"(^|[\s-])(market|bazaar|bazar)([\s-]|$)"#, options: .regularExpression) != nil
-        let transitTypes: Set<String> = ["bus_stop", "bus_station", "subway_station", "train_station", "transit_station", "parking"]
-        return hasMarketName && categories.isDisjoint(with: transitTypes)
+        // A shop can include “market” in its name; require category evidence.
+        !Set(types ?? []).isDisjoint(with: ["market", "farmers_market", "flea_market"])
     }
     var isHomeMarket: Bool {
-        let categories = Set(types ?? [])
-        if !categories.isDisjoint(with: ["market", "farmers_market", "flea_market"]) { return true }
-        let unrelated: Set<String> = ["restaurant", "food_store", "grocery_store", "supermarket", "general_store", "clothing_store", "book_store", "transportation_service", "parking", "hotel", "lodging"]
-        return isMarket && categories.isDisjoint(with: unrelated)
+        isMarket
     }
     var phoneURL: URL? {
         for number in [internationalPhoneNumber, nationalPhoneNumber].compactMap({ $0 }) {
@@ -235,7 +228,7 @@ enum HomeMarketPresentation {
         return area.isEmpty || area.caseInsensitiveCompare(city) == .orderedSame ? city : "\(area), \(city)"
     }
     static func hasAvailableData(place: GoogleMarketPlace?, status: MarketOpeningStatus?) -> Bool {
-        guard let place, let status, status.isOpen != nil, place.phoneURL != nil,
+        guard let place, place.isMarket, let status, status.isOpen != nil, place.phoneURL != nil,
               let name = place.displayName?.text, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let address = place.formattedAddress, !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         return status.todayOpenIntervals() != nil
