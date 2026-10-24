@@ -245,7 +245,25 @@ Home and search validate market details before showing cards: name, address, kno
 
 Nearby badges display Low/Mid/High. Home and market details share the same driving-route distance from the current coordinates where Apple Maps routing is available; both use straight-line distance while routing is unavailable. Distances always use km (1.2 km / 0.45 km). Both screens track location changes of roughly 100m while active and recalculate routing, refreshing estimates every five minutes. Tracking stops when neither screen is active. Home omits the crowd demo estimates sentence; market details retain their Demo data badge and simulated percentage labels.
 
-Home caches the last successful Nearby/Popular lists in a shared session store. Returning from details reuses those results without clearing cards or re-running discovery. A city change, gaining/losing coordinates, or moving at least 100m triggers discovery again; pull-to-refresh can explicitly reload. Refresh commits both lists together and preserves existing cards while loading. Home cards show distance only, with no car icon or driving-time row.
+Home caches the last successful Nearby/Popular lists in a shared session store.
+Nearby also persists its selected Place IDs and discovery coordinates across app
+launches. At the same location (less than 100m from that origin), it restores the
+same selection and order, loading listing content live. Opening status and details
+continue refreshing without replacing the selected markets. Temporary detail
+failures do not remove Nearby cards; a restored listing whose details cannot load
+shows “Market details unavailable” until a retry succeeds. Only IDs and discovery
+coordinates are persisted, not Google listing content. Moving at least 100m
+selects a new nearby list; losing location hides Nearby. Returning to the saved
+origin can reuse its selection. Pull-to-refresh keeps Nearby's membership at the
+same location while refreshing details and Popular. Returning from details reuses
+session results. Home cards show distance only, with no car icon or driving-time row.
+
+Nearby selection persistence checks (no API key needed):
+
+```sh
+swiftc -module-cache-path /tmp/CrowdStatusSwiftModuleCache Sources/Features/Home/MarketOpeningHours.swift Sources/Features/Home/MarketDiscovery.swift Tests/NearbyMarketSelectionChecks.swift -o /tmp/CrowdStatusNearbySelectionChecks
+/tmp/CrowdStatusNearbySelectionChecks
+```
 
 ### Market descriptions
 

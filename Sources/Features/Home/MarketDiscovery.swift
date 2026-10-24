@@ -36,6 +36,12 @@ struct GoogleMarketPlace: Decodable, Hashable, Identifiable {
     var isHomeMarket: Bool {
         isMarket
     }
+    static func pendingSelection(id: String) -> Self {
+        Self(id: id, displayName: LocalizedText(text: "Market details unavailable"), formattedAddress: nil,
+             location: nil, viewport: nil, types: nil, primaryTypeDisplayName: nil, rating: nil,
+             userRatingCount: nil, nationalPhoneNumber: nil, internationalPhoneNumber: nil,
+             editorialSummary: nil, photos: nil)
+    }
     var phoneURL: URL? {
         for number in [internationalPhoneNumber, nationalPhoneNumber].compactMap({ $0 }) {
             let normalized = number.filter { $0.isNumber || $0 == "+" }
@@ -434,6 +440,35 @@ struct HomeMarketContext {
     }
 }
 
+// Persist identity and the discovery origin, while loading listing content live.
+struct NearbyMarketSelection: Codable {
+    static let storageKey = "nearbyMarketSelection.v1"
+    let latitude: Double
+    let longitude: Double
+    let placeIDs: [String]
+
+    init(location: CLLocation, placeIDs: [String]) {
+        latitude = location.coordinate.latitude
+        longitude = location.coordinate.longitude
+        self.placeIDs = placeIDs
+    }
+
+    func matches(location: CLLocation?) -> Bool {
+        guard let location else { return false }
+        return location.distance(from: CLLocation(latitude: latitude, longitude: longitude)) < 100
+    }
+
+    static func load(defaults: UserDefaults) -> Self? {
+        guard let data = defaults.data(forKey: storageKey) else { return nil }
+        return try? JSONDecoder().decode(Self.self, from: data)
+    }
+
+    func save(defaults: UserDefaults) {
+        guard let data = try? JSONEncoder().encode(self) else { return }
+        defaults.set(data, forKey: Self.storageKey)
+    }
+}
+
 @MainActor
 final class HomeMarketStore: ObservableObject {
     static let shared = HomeMarketStore()
@@ -443,6 +478,13 @@ final class HomeMarketStore: ObservableObject {
     @Published private(set) var errorMessage: String?
     private var generation = UUID()
     private var loadedContext: HomeMarketContext?
+    private let defaults: UserDefaults
+    private var nearbySelection: NearbyMarketSelection?
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        nearbySelection = NearbyMarketSelection.load(defaults: defaults)
+    }
 
     func refresh(city: String, location: CLLocation?, hasResolvedCity: Bool, force: Bool = false) async {
         guard hasResolvedCity else { return }
@@ -452,6 +494,21 @@ final class HomeMarketStore: ObservableObject {
         errorMessage = nil
         isLoading = true
         defer { if self.generation == generation { isLoading = false } }
+        let reuseNearby = nearbySelection?.matches(location: location) == true
+        if reuseNearby, let nearbySelection {
+            // Keep the saved order and membership, even if a detail request fails.
+            let previous = Dictionary(nearby.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            nearby = nearbySelection.placeIDs.map {
+                MarketDetailsStore.shared.places[$0] ?? previous[$0] ?? .pendingSelection(id: $0)
+            }
+            for id in nearbySelection.placeIDs {
+                await MarketDetailsStore.shared.load(placeID: id)
+                guard self.generation == generation, !Task.isCancelled else { return }
+            }
+        } else {
+            // Do not show the old area's markets after moving or disabling location.
+            nearby = []
+        }
         do {
             let viewport = try await GoogleMarketDiscovery.cityViewport(city)
             var all: [GoogleMarketPlace] = []
@@ -466,8 +523,8 @@ final class HomeMarketStore: ObservableObject {
             let popularCandidates = GoogleMarketDiscovery.popular(all)
             let availablePopular = try await availableMarkets(popularCandidates, limit: 8)
             guard self.generation == generation else { return }
-            var availableNearby: [GoogleMarketPlace] = []
-            if let location {
+            var availableNearby = nearby
+            if let location, !reuseNearby {
                 // Circle bias can return places outside its radius; filter explicitly.
                 let page = try await GoogleMarketDiscovery.nearbyMarkets(location: location)
                 try Task.checkCancellation()
@@ -475,12 +532,22 @@ final class HomeMarketStore: ObservableObject {
                 let nearbyCandidates = GoogleMarketDiscovery.nearby(GoogleMarketDiscovery.merging(all, page.places ?? []), from: location)
                 availableNearby = try await availableMarkets(nearbyCandidates, limit: 4)
                 guard self.generation == generation else { return }
+                if availableNearby.isEmpty,
+                   nearbyCandidates.contains(where: { MarketDetailsStore.shared.failures.contains($0.id) }) {
+                    // A temporary outage must not become a saved empty selection.
+                    throw GoogleMarketDiscovery.RequestError.response
+                }
             }
             try Task.checkCancellation()
             guard self.generation == generation else { return }
             // Commit both lists together; navigation back keeps the last successful result.
             popular = availablePopular
             nearby = availableNearby
+            if let location, !reuseNearby {
+                let selection = NearbyMarketSelection(location: location, placeIDs: availableNearby.map(\.id))
+                selection.save(defaults: defaults)
+                nearbySelection = selection
+            }
             loadedContext = HomeMarketContext(city: city, location: location)
         } catch {
             guard self.generation == generation, !(error is CancellationError) else { return }

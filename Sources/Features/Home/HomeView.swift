@@ -83,7 +83,7 @@ struct HomeView: View {
         "\(cityStore.hasResolvedCity)|\(cityStore.city)|\(cityStore.location?.coordinate.latitude ?? 0)|\(cityStore.location?.coordinate.longitude ?? 0)"
     }
     private var nearbyMarkets: [NearbyMarket] {
-        homeMarkets.nearby.filter { details.isAvailableForHome(placeID: $0.id) }.map { candidate in
+        homeMarkets.nearby.map { candidate in
             let place = details.places[candidate.id] ?? candidate
             let percent = MarketCrowdData.demo(marketID: place.id, timeZoneID: details.statuses[place.id]?.timeZoneID ?? TimeZone.current.identifier).currentPercent
             return NearbyMarket(id: place.id, name: place.name, imageName: "", crowdLevel: percent < 35 ? .low : percent < 65 ? .medium : .high, distance: journeys.distanceLabel(for: place, from: cityStore.location) ?? "", livePlace: place)
