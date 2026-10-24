@@ -26,10 +26,25 @@ struct NearbyMarketSelectionChecks {
         precondition(!restored.matches(location: nil))
 
         let firstLaunch = HomeMarketStore(defaults: defaults)
+        precondition(!firstLaunch.hasCompletedLaunchSkeleton)
+        await firstLaunch.completeLaunchSkeleton()
+        precondition(firstLaunch.hasCompletedLaunchSkeleton)
+        // A recreated Home view uses the same session store; appearing again
+        // must not reset its launch skeleton, even after an unsuccessful refresh.
+        await firstLaunch.completeLaunchSkeleton()
+        precondition(firstLaunch.hasCompletedLaunchSkeleton)
         await firstLaunch.refresh(city: "Bengaluru, India", location: origin, hasResolvedCity: true)
         precondition(firstLaunch.nearby.map(\.id) == ids)
+        precondition(firstLaunch.hasCompletedLaunchSkeleton)
         // A fresh instance simulates relaunch; transient failures cannot rotate cards.
         let relaunch = HomeMarketStore(defaults: defaults)
+        precondition(!relaunch.hasCompletedLaunchSkeleton)
+        let cancelledLaunch = Task { await relaunch.completeLaunchSkeleton() }
+        cancelledLaunch.cancel()
+        await cancelledLaunch.value
+        precondition(!relaunch.hasCompletedLaunchSkeleton)
+        await relaunch.completeLaunchSkeleton()
+        precondition(relaunch.hasCompletedLaunchSkeleton)
         await relaunch.refresh(city: "Bengaluru, India", location: drift, hasResolvedCity: true)
         precondition(relaunch.nearby.map(\.id) == ids)
         await relaunch.refresh(city: "Bengaluru, India", location: origin, hasResolvedCity: true, force: true)

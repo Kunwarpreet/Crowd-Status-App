@@ -59,7 +59,7 @@ private extension Color {
 
 struct HomeView: View {
     @State private var selectedMarket: MarketSearchResult?
-    @State private var isStartingHome = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("marketAlertWindows") private var savedAlertWindows = Data()
     @AppStorage("lowCrowdNotificationConfirmations") private var savedLowCrowdNotifications = Data()
     @AppStorage("seenMarketNotifications") private var seenNotifications = Data()
@@ -93,7 +93,8 @@ struct HomeView: View {
         homeMarkets.popular.filter { details.isAvailableForHome(placeID: $0.id) }.map { PopularMarket(id: $0.id, name: $0.name, imageName: "", livePlace: $0) }
     }
     private var isDiscoveringMarkets: Bool {
-        isStartingHome || homeMarkets.isLoading || cityStore.isLocating
+        !homeMarkets.hasCompletedLaunchSkeleton || homeMarkets.isLoading
+            || (cityStore.isLocating && !homeMarkets.hasLoadedMarkets)
     }
     private func refreshMarkets(force: Bool = false) async {
         await homeMarkets.refresh(city: cityStore.city, location: cityStore.location, hasResolvedCity: cityStore.hasResolvedCity, force: force)
@@ -128,9 +129,11 @@ struct HomeView: View {
                 do { try await Task.sleep(for: .seconds(300)) } catch { return }
             }
         }
+        .task {
+            await homeMarkets.completeLaunchSkeleton()
+        }
         .task(id: locationID) {
             await refreshMarkets()
-            isStartingHome = false
         }
         .task(id: "\(scenePhase)|\(homeMarkets.nearby.map(\.id))|\(homeMarkets.popular.map(\.id))") {
             guard scenePhase == .active else { return }
@@ -237,11 +240,10 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 32) {
                 VStack(alignment: .leading, spacing: 24) {
                     sectionHeading("Nearby", subtitle: "Markets closest to you · Within 8 km")
-                    if isDiscoveringMarkets && nearbyMarkets.isEmpty {
+                    if isDiscoveringMarkets {
                         VStack(spacing: 20) {
                             ForEach(0..<2) { _ in NearbyMarketSkeleton() }
                         }
-                        .modifier(MarketSkeletonShimmer())
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel("Loading nearby markets")
                     }
@@ -251,18 +253,20 @@ struct HomeView: View {
                             .font(.footnote).foregroundStyle(.secondary)
                     }
 
-                    VStack(spacing: 20) {
-                        ForEach(nearbyMarkets) { market in
-                            Button {
-                                selectedMarket = market.detail
-                            } label: {
-                                NearbyMarketCard(
-                                    market: market,
-                                    openingStatus: details.statuses[market.id]
-                                )
-                                    .contentShape(Rectangle())
+                    if !isDiscoveringMarkets {
+                        VStack(spacing: 20) {
+                            ForEach(nearbyMarkets) { market in
+                                Button {
+                                    selectedMarket = market.detail
+                                } label: {
+                                    NearbyMarketCard(
+                                        market: market,
+                                        openingStatus: details.statuses[market.id]
+                                    )
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
                 }
@@ -278,28 +282,29 @@ struct HomeView: View {
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 16) {
-                        if isDiscoveringMarkets && popularMarkets.isEmpty {
+                        if isDiscoveringMarkets {
                             HStack(spacing: 16) {
                                 ForEach(0..<3) { _ in PopularMarketSkeleton() }
                             }
-                            .modifier(MarketSkeletonShimmer())
                             .accessibilityElement(children: .ignore)
                             .accessibilityLabel("Loading popular markets")
-                        }
-                        ForEach(popularMarkets) { market in
-                            Button {
-                                selectedMarket = market.detail
-                            } label: {
-                                PopularMarketCard(market: market, openingStatus: details.statuses[market.id])
-                                    .contentShape(Rectangle())
+                        } else {
+                            ForEach(popularMarkets) { market in
+                                Button {
+                                    selectedMarket = market.detail
+                                } label: {
+                                    PopularMarketCard(market: market, openingStatus: details.statuses[market.id])
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
                 }
                 .contentMargins(.trailing, -AppSpacing.regular)
             }
         }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: isDiscoveringMarkets)
     }
 
     private func sectionHeading(_ title: String, subtitle: String) -> some View {
@@ -319,11 +324,44 @@ private struct SkeletonBlock: View {
     var width: CGFloat? = nil
     let height: CGFloat
     var cornerRadius: CGFloat = 4
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+
+    private let base = Color(hex: 0xCBD4E1)
 
     var body: some View {
-        RoundedRectangle(cornerRadius: cornerRadius)
-            .fill(Color(hex: 0xE9EDF3))
-            .frame(width: width, height: height)
+        Group {
+            if reduceMotion || scenePhase != .active {
+                RoundedRectangle(cornerRadius: cornerRadius).fill(base)
+            } else {
+                // Redraw the gradient on a clock rather than relying on implicit
+                // animation of an overlay inside GeometryReader.
+                TimelineView(.periodic(from: .now, by: 1.0 / 60)) { timeline in
+                    let progress = timeline.date.timeIntervalSinceReferenceDate
+                        .truncatingRemainder(dividingBy: 1.3) / 1.3
+                    Canvas { context, size in
+                        let leading = size.width * (progress * 2 - 1)
+                        let shape = Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: cornerRadius)
+                        context.fill(shape, with: .linearGradient(
+                            Gradient(stops: [
+                                .init(color: base, location: 0),
+                                .init(color: Color(hex: 0xD3DBE6), location: 0.2),
+                                .init(color: Color(hex: 0xE2E7EF), location: 0.4),
+                                .init(color: Color(hex: 0xE8EDF3), location: 0.5),
+                                .init(color: Color(hex: 0xE2E7EF), location: 0.6),
+                                .init(color: Color(hex: 0xD3DBE6), location: 0.8),
+                                .init(color: base, location: 1)
+                            ]),
+                            startPoint: CGPoint(x: leading, y: 0),
+                            endPoint: CGPoint(x: leading + size.width, y: size.height * 0.25)
+                        ))
+                    }
+                }
+            }
+        }
+        .frame(width: width, height: height)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
@@ -374,46 +412,6 @@ private struct PopularMarketSkeleton: View {
     }
 }
 
-private struct MarketSkeletonShimmer: ViewModifier {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var startedAt = Date()
-
-    func body(content: Content) -> some View {
-        Group {
-            if reduceMotion {
-                content
-            } else {
-                TimelineView(.animation(minimumInterval: 1.0 / 30, paused: scenePhase != .active)) { timeline in
-                    // A local clock restarts the pulse and sweep for each loading appearance.
-                    let elapsed = max(0, timeline.date.timeIntervalSince(startedAt))
-                    let progress = elapsed.truncatingRemainder(dividingBy: 1.4) / 1.4
-                    let opacity = 0.85 + 0.15 * cos(elapsed * .pi * 2 / 1.4)
-                    content
-                        .opacity(opacity)
-                        .overlay {
-                            GeometryReader { geometry in
-                                LinearGradient(
-                                    colors: [.clear, .white.opacity(0.9), .clear],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                                .frame(width: geometry.size.width * 0.55)
-                                .offset(x: geometry.size.width * (progress * 1.55 - 0.55))
-                            }
-                            .mask(content)
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                        }
-                }
-            }
-        }
-        .onAppear { startedAt = Date() }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { startedAt = Date() }
-        }
-    }
-}
 
 private struct NearbyMarketCard: View {
     let market: NearbyMarket

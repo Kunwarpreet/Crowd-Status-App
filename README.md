@@ -304,3 +304,17 @@ fallback, but real Sunday Market listings can use their own Google data.
 swiftc -module-cache-path /tmp/CrowdStatusSwiftModuleCache Sources/Features/Home/MarketDescriptions.swift Tests/MarketDescriptionChecks.swift -o /tmp/CrowdStatusDescriptionChecks
 /tmp/CrowdStatusDescriptionChecks
 ```
+
+### Home launch skeleton
+
+Nearby and Popular display their shimmering card placeholders on every fresh
+Home launch for at least 0.5 seconds and until location
+and market discovery finish. Restored Nearby selections stay behind the skeleton
+until loading completes. Results fade in over 0.25 seconds. Returning from market
+details keeps the existing results without replaying the launch timer, even if
+SwiftUI recreates Home. The launch timer belongs to the shared session store.
+Location checks also keep already-loaded markets visible; refreshing
+or changing location shows skeletons while discovery runs. Reduce Motion disables
+the shimmer and transition. Each grey placeholder shape draws a muted light-grey highlight sweep on a
+60 fps clock with a soft highlight falloff. The sweep repeats every 1.3 seconds for the entire loading state,
+including when requests take longer than the half-second launch minimum.

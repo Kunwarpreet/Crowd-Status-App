@@ -474,6 +474,7 @@ final class HomeMarketStore: ObservableObject {
     static let shared = HomeMarketStore()
     @Published private(set) var nearby: [GoogleMarketPlace] = []
     @Published private(set) var popular: [GoogleMarketPlace] = []
+    @Published private(set) var hasCompletedLaunchSkeleton = false
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
     private var generation = UUID()
@@ -484,6 +485,15 @@ final class HomeMarketStore: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         nearbySelection = NearbyMarketSelection.load(defaults: defaults)
+    }
+
+    var hasLoadedMarkets: Bool { loadedContext != nil }
+
+    func completeLaunchSkeleton() async {
+        guard !hasCompletedLaunchSkeleton else { return }
+        // Session-owned state survives HomeView recreation when navigating back.
+        do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+        hasCompletedLaunchSkeleton = true
     }
 
     func refresh(city: String, location: CLLocation?, hasResolvedCity: Bool, force: Bool = false) async {
