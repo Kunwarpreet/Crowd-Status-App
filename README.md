@@ -20,12 +20,12 @@ Google pages and deduplicates by Place ID. Google limits results per query, so
 this is city-wide discovery, not an exhaustive municipal directory. A more
 specific name search can discover listings missing from the broad city query.
 
-Home and search require a Google Places category of `market`, `farmers_market`,
-or `flea_market`, including when validating the fetched listing details. A name
-containing “market”, “bazaar”, or “bazar” alone does not qualify, so shops and
-outlets without a market category are excluded. Listings with missing categories
-are also excluded. This depends on Google's classification and may omit genuine
-markets categorized only as shopping malls or generic points of interest.
+Nearby requires a Google Places category of `market`, `farmers_market`, or
+`flea_market`, including when validating fetched details. Search and Popular use
+the shared market-destination policy: category/name evidence excludes individual
+shops, and known researched bazaars can also qualify by exact listing name and
+city address when Google classifies them as shopping areas. A name containing
+“market” alone never qualifies a shop with a merchant primary category.
 
 Every result opens its own market detail screen using its Google Place ID.
 Addresses, rating, phone, editorial description when available, up to four photos,
@@ -241,7 +241,7 @@ Home uses the shared city/location selection instead of fixed Bengaluru cards. I
 
 Popular loads the city search pages (up to 60 results) and shows up to eight markets ranked by Google review count, then rating. Markets already selected for Nearby are excluded by Place ID before filling Popular, including restored Nearby selections. Discovery targets at least six alternatives (up to eight displayed). When the original city results fall short, it first looks up known market destinations for Amritsar and Bengaluru/Bangalore, then uses popular, bazaar, farmers, flea, wholesale, vegetable, flower and cloth market queries for any city. Named queries use one page, broad queries up to three; discovery stops when at least six eligible alternatives are found. Results from nearby discovery also join the candidate pool. Supplemental query failures preserve the markets already found. If fewer other eligible markets are available after these searches, Popular shows fewer cards without repeating Nearby. This ranks the returned market results, rather than claiming an exhaustive city-wide popularity measure. Cards use Google photos, real opening status, and Place IDs to open the matching market details. Home crowd badges remain explicitly labelled demo data. Pull to refresh requests an updated location and reloads the lists.
 
-Nearby and search validate market details before showing cards: name, address, known opening status, a usable schedule with hours for all seven days, and a usable phone number are required. Markets missing either hours or a phone number are excluded from Nearby and search, including subsequent search pages. Popular requires a genuine market destination with a live listing name and address, but no longer requires a central phone number or a complete hours schedule. Missing hours show Hours unavailable. The detail screen omits the Call control entirely when that listing has no usable phone number. Phone numbers must contain 7–15 digits; a valid national number is accepted when the international number is missing or invalid. Concurrent Home/search validation awaits the same detail request. Crowd charts remain demo estimates; real crowd data is not an eligibility requirement. Unavailable markets are skipped and the next qualifying results fill the sections. Closed markets with known hours remain visible. The Home location label uses the geocoded area and city (city alone if no area is supplied); the country remains in the search query for accuracy but is omitted from Home.
+Nearby validates market details before showing cards: name, address, known opening status, a usable schedule with hours for all seven days, and a usable phone number are required. Markets missing either hours or a phone number are excluded from Nearby. Search and Popular require a genuine market destination with a live listing name and address, but do not require a central phone number or a complete hours schedule. Missing hours show Hours unavailable. The detail screen omits the Call control entirely when that listing has no usable phone number. Phone numbers must contain 7–15 digits; a valid national number is accepted when the international number is missing or invalid. Concurrent Home/search validation awaits the same detail request. Crowd charts remain demo estimates; real crowd data is not an eligibility requirement. Unavailable markets are skipped and the next qualifying results fill the sections. Closed markets with known hours remain visible. The Home location label uses the geocoded area and city (city alone if no area is supplied); the country remains in the search query for accuracy but is omitted from Home.
 
 Nearby badges display Low/Mid/High only when the market is confirmed open.
 Closed markets and markets with loading or unavailable hours omit the crowd badge,
@@ -328,7 +328,7 @@ swiftc -module-cache-path /tmp/CrowdStatusSwiftModuleCache Sources/Features/Home
 /tmp/CrowdStatusPopularChecks
 ```
 
-Popular uses stricter destination filtering than general search: generic listings
+Search and Popular use the same destination filtering: generic listings
 require a market category and a market-destination name (Market, Bazaar, Bazar,
 Mandi or Haat). Farmers and flea market categories can use other names. Researched
 market destinations can also use shopping-area categories when both the exact
@@ -340,7 +340,7 @@ Jewellers are excluded even when Google also tags them as markets. This excludes
 the reported Prem nath & sons and Punjabi kheti Store listings. The same rule is
 checked against fetched details and cached Home cards before display. Remaining
 destinations retain review-count/rating ranking and the Nearby exclusion.
-Popular allows missing phone/hours; Nearby and search retain their existing validation. Ambiguous names can be omitted by this conservative filter.
+Search and Popular allow missing phone/hours; Nearby retains its existing validation. Ambiguous names can be omitted by this conservative filter.
 Google's [primary category field](https://developers.google.com/maps/documentation/places/web-service/place-types)
 is fetched alongside the existing category list.
 
@@ -362,3 +362,22 @@ Live smoke checks on 25 October 2026 returned eight Popular markets for both
 Amritsar and Bengaluru using a fresh session and the city viewport centre for
 Nearby. Both checks had zero Place ID overlap with Nearby and no discovery errors.
 Counts and listing content can change with Google results and the user's location.
+
+Market search queries trim repeated whitespace and avoid adding another “market”
+after a name that already contains Market, Bazaar, Bazar, Mandi or Haat. The search
+city can be changed with Apply or the keyboard submit action. The selected city
+continues to restrict results; searching another city requires changing that field.
+Search checks up to three consecutive pages when earlier pages contain only
+filtered-out listings, preserving Load more for subsequent pages. Superseded
+requests cannot overwrite newer query results.
+
+Search regression checks (no API key needed):
+
+```sh
+swiftc -module-cache-path /tmp/CrowdStatusSwiftModuleCache Sources/Features/Home/MarketOpeningHours.swift Sources/Features/Home/MarketDiscovery.swift Tests/MarketSearchChecks.swift -o /tmp/CrowdStatusSearchChecks
+/tmp/CrowdStatusSearchChecks
+```
+
+Live search checks on 25 October 2026 returned Hall Bazar and Guru Bazar in
+Amritsar despite neither having a listed phone number, and KR Market matches
+in Bengaluru, with no search errors.

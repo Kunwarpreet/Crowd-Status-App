@@ -247,9 +247,17 @@ enum GoogleMarketDiscovery {
         guard let viewport = page.places?.first?.viewport else { throw RequestError.cityNotFound }
         return viewport
     }
+    static func marketSearchText(city: String, query: String) -> String {
+        let query = query.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard !query.isEmpty else { return "markets in \(city)" }
+        let words = Set(query.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init))
+        let marketWords: Set<String> = ["market", "markets", "bazaar", "bazar", "mandi", "haat"]
+        return "\(query)\(words.isDisjoint(with: marketWords) ? " market" : "") in \(city)"
+    }
+
     static func markets(city: String, query: String, viewport: GoogleMarketPlace.Viewport, pageToken: String?) async throws -> Page {
         var body: [String: Any] = [
-            "textQuery": query.isEmpty ? "markets in \(city)" : "\(query) market in \(city)",
+            "textQuery": marketSearchText(city: city, query: query),
             "languageCode": "en", "pageSize": 20,
             "locationRestriction": ["rectangle": [
                 "low": ["latitude": viewport.low.latitude, "longitude": viewport.low.longitude],
@@ -441,6 +449,25 @@ final class MarketCityStore: NSObject, ObservableObject, @preconcurrency CLLocat
 }
 
 @MainActor
+struct MarketSearchService {
+    let viewport: (String) async throws -> GoogleMarketPlace.Viewport
+    let page: (String, String, GoogleMarketPlace.Viewport, String?) async throws -> GoogleMarketDiscovery.Page
+    let resolve: (GoogleMarketPlace) async -> GoogleMarketPlace?
+
+    static var live: Self {
+        Self(
+            viewport: { try await GoogleMarketDiscovery.cityViewport($0) },
+            page: { try await GoogleMarketDiscovery.markets(city: $0, query: $1, viewport: $2, pageToken: $3) },
+            resolve: { candidate in
+                await MarketDetailsStore.shared.load(placeID: candidate.id)
+                guard MarketDetailsStore.shared.isAvailableForPopular(placeID: candidate.id) else { return nil }
+                return MarketDetailsStore.shared.places[candidate.id]
+            }
+        )
+    }
+}
+
+@MainActor
 final class MarketSearchStore: ObservableObject {
     @Published private(set) var markets: [GoogleMarketPlace] = []
     @Published private(set) var isLoading = false
@@ -451,12 +478,18 @@ final class MarketSearchStore: ObservableObject {
     private var query = ""
     private var viewport: GoogleMarketPlace.Viewport?
     private var viewportCity = ""
+    private let service: MarketSearchService
+
+    init(service: MarketSearchService? = nil) {
+        self.service = service ?? .live
+    }
 
     func search(city: String, query: String) async {
         let generation = UUID()
         self.generation = generation
         self.city = city
-        self.query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.query = query
         markets = []
         nextPageToken = nil
         errorMessage = nil
@@ -465,17 +498,15 @@ final class MarketSearchStore: ObservableObject {
             try await Task.sleep(for: .milliseconds(350))
             let viewport: GoogleMarketPlace.Viewport
             if viewportCity == city, let cached = self.viewport { viewport = cached }
-            else { viewport = try await GoogleMarketDiscovery.cityViewport(city) }
+            else { viewport = try await service.viewport(city) }
             try Task.checkCancellation()
             guard self.generation == generation else { return }
             self.viewport = viewport
             viewportCity = city
-            let page = try await GoogleMarketDiscovery.markets(city: city, query: self.query, viewport: viewport, pageToken: nil)
+            let page = try await availablePage(city: city, query: query, viewport: viewport, token: nil, generation: generation)
             try Task.checkCancellation()
             guard self.generation == generation else { return }
-            let available = try await availableMarkets(in: page.places ?? [])
-            guard self.generation == generation else { return }
-            markets = GoogleMarketDiscovery.merging([], available)
+            markets = page.places ?? []
             nextPageToken = page.nextPageToken
             isLoading = false
         } catch {
@@ -490,12 +521,10 @@ final class MarketSearchStore: ObservableObject {
         isLoading = true
         errorMessage = nil
         do {
-            let page = try await GoogleMarketDiscovery.markets(city: city, query: query, viewport: viewport, pageToken: token)
+            let page = try await availablePage(city: city, query: query, viewport: viewport, token: token, generation: generation)
             try Task.checkCancellation()
             guard self.generation == generation else { return }
-            let available = try await availableMarkets(in: page.places ?? [])
-            guard self.generation == generation else { return }
-            markets = GoogleMarketDiscovery.merging(markets, available)
+            markets = GoogleMarketDiscovery.merging(markets, page.places ?? [])
             nextPageToken = page.nextPageToken
         } catch {
             guard self.generation == generation else { return }
@@ -503,19 +532,38 @@ final class MarketSearchStore: ObservableObject {
         }
         if self.generation == generation { isLoading = false }
     }
-    private func availableMarkets(in candidates: [GoogleMarketPlace]) async throws -> [GoogleMarketPlace] {
-        var available: [GoogleMarketPlace] = []
-        for candidate in GoogleMarketDiscovery.merging([], candidates) {
+    private func availablePage(
+        city: String, query: String, viewport: GoogleMarketPlace.Viewport,
+        token: String?, generation: UUID
+    ) async throws -> GoogleMarketDiscovery.Page {
+        var token = token
+        var seenTokens = Set<String>()
+        if let token { seenTokens.insert(token) }
+        // Do not report no matches just because the first page contains shops.
+        // Keep this bounded; further results remain available through Load more.
+        for _ in 0..<3 {
             try Task.checkCancellation()
-            await MarketDetailsStore.shared.load(placeID: candidate.id)
+            guard self.generation == generation else { throw CancellationError() }
+            let page = try await service.page(city, query, viewport, token)
             try Task.checkCancellation()
-            if MarketDetailsStore.shared.isAvailableForHome(placeID: candidate.id) {
-                available.append(MarketDetailsStore.shared.places[candidate.id] ?? candidate)
+            guard self.generation == generation else { throw CancellationError() }
+            var available: [GoogleMarketPlace] = []
+            for candidate in GoogleMarketDiscovery.merging([], page.places ?? []) {
+                try Task.checkCancellation()
+                if let place = await service.resolve(candidate) { available.append(place) }
+                try Task.checkCancellation()
+                guard self.generation == generation else { throw CancellationError() }
             }
+            if !available.isEmpty || page.nextPageToken == nil {
+                return .init(places: GoogleMarketDiscovery.merging([], available), nextPageToken: page.nextPageToken)
+            }
+            guard let next = page.nextPageToken, seenTokens.insert(next).inserted else {
+                return .init(places: [], nextPageToken: nil)
+            }
+            token = next
         }
-        return available
+        return .init(places: [], nextPageToken: token)
     }
-
 }
 
 struct HomeMarketContext {

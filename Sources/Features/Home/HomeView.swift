@@ -663,7 +663,7 @@ private struct MarketSearchView: View {
     @StateObject private var search = MarketSearchStore()
     @ObservedObject private var details = MarketDetailsStore.shared
     private var availableMarkets: [GoogleMarketPlace] {
-        search.markets.filter { details.isAvailableForHome(placeID: $0.id) }
+        search.markets.filter { details.isAvailableForPopular(placeID: $0.id) }
     }
     @State private var cityText = ""
 
@@ -694,6 +694,9 @@ private struct MarketSearchView: View {
                         .foregroundStyle(.black)
                         .focused($isSearchFocused)
                         .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+                        .submitLabel(.search)
+                        .onSubmit { isSearchFocused = false }
                         .accessibilityLabel("Search markets")
                 }
                 .padding(.horizontal, 15)
@@ -708,13 +711,23 @@ private struct MarketSearchView: View {
             .padding(.horizontal, 20)
             .padding(.top, 8)
 
-            TextField("City, country", text: $cityText)
-                .font(.system(size: 14))
-                .submitLabel(.search)
-                .onSubmit { cityStore.useCity(cityText) }
-                .accessibilityLabel("City to search")
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
+            HStack(spacing: 12) {
+                TextField("City, country", text: $cityText)
+                    .font(.system(size: 14))
+                    .submitLabel(.search)
+                    .autocorrectionDisabled()
+                    .onSubmit { cityStore.useCity(cityText) }
+                    .accessibilityLabel("City to search")
+                Button("Apply") {
+                    isSearchFocused = false
+                    cityStore.useCity(cityText)
+                }
+                .font(.system(size: 14, weight: .semibold))
+                .disabled(cityText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityLabel("Apply search city")
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
             if let message = cityStore.locationMessage {
                 Text(message).font(.system(size: 12)).foregroundStyle(AppColors.secondaryText)
                     .padding(.horizontal, 20)
@@ -748,7 +761,7 @@ private struct MarketSearchView: View {
                             }
                         }
                     } else if availableMarkets.isEmpty {
-                        Text("No markets with available opening hours and a phone number found. Try another name or city.")
+                        Text("No matching markets found in this city. Try another name or change the city above.")
                             .font(.system(size: 14)).foregroundStyle(AppColors.secondaryText)
                     }
                     if search.nextPageToken != nil && !search.isLoading {
