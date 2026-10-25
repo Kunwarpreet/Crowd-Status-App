@@ -52,6 +52,53 @@ struct MarketSearchChecks {
         await store.search(city: "Bengaluru, India", query: "empty")
         precondition(viewportRequests == [city, "Bengaluru, India"])
 
+        // Opening Search shows seven genuine suggestions, filters immediately,
+        // and clearing restores them without another request.
+        let suggested = try (0..<9).map { try place("suggested-\($0)", name: "Local \($0) Market") }
+        var suggestionRequests = 0
+        let presearch = MarketSearchStore(service: .init(
+            viewport: { _ in viewport },
+            page: { _, _, _, _ in
+                suggestionRequests += 1
+                return .init(places: [], nextPageToken: nil)
+            },
+            resolve: { HomeMarketPresentation.hasAvailablePopularData(place: $0) ? $0 : nil }
+        ))
+        presearch.seedSuggestions([hall, guru, shop] + suggested, city: city)
+        precondition(presearch.matchingMarkets(city: city, query: "").count == 7)
+        precondition(!presearch.suggestions.contains { $0.id == shop.id })
+        precondition(presearch.matchingMarkets(city: city, query: " hall bazar ").map(\.id) == [hall.id])
+        precondition(presearch.matchingMarkets(city: city, query: "GURU").map(\.id) == [guru.id])
+        precondition(presearch.matchingMarkets(city: city, query: "unknown").isEmpty)
+        precondition(presearch.matchingMarkets(city: "Bengaluru, India", query: "").isEmpty)
+        await presearch.search(city: city, query: "")
+        precondition(presearch.markets.count == 7 && !presearch.isLoading && suggestionRequests == 0)
+        await presearch.search(city: city, query: "Hall")
+        precondition(presearch.matchingMarkets(city: city, query: "Hall").map(\.id) == [hall.id])
+        await presearch.search(city: city, query: "  ")
+        precondition(presearch.markets.count == 7 && suggestionRequests == 1)
+        precondition(presearch.nextPageToken == nil)
+
+        // A cold Search without Home data fills seven suggestions across pages.
+        var initialPages = 0
+        let cold = MarketSearchStore(service: .init(
+            viewport: { _ in viewport },
+            page: { _, _, _, token in
+                initialPages += 1
+                return token == nil
+                    ? .init(places: Array(suggested.prefix(3)), nextPageToken: "more")
+                    : .init(places: Array(suggested.dropFirst(3)), nextPageToken: nil)
+            },
+            resolve: { HomeMarketPresentation.hasAvailablePopularData(place: $0) ? $0 : nil }
+        ))
+        await cold.search(city: city, query: "")
+        precondition(cold.markets.count == 7 && cold.suggestions.count == 7 && initialPages == 2)
+        precondition(cold.nextPageToken == nil)
+        let spaced = try place("kr", name: "K R Market")
+        cold.seedSuggestions([spaced], city: "Bengaluru, India")
+        precondition(cold.matchingMarkets(city: "Bengaluru, India", query: "KR").map(\.id) == [spaced.id])
+        precondition(cold.matchingMarkets(city: city, query: "").isEmpty)
+
         // Results from a slow earlier search cannot replace a more recent query.
         let (started, signal) = AsyncStream<Void>.makeStream()
         var oldResponse: CheckedContinuation<GoogleMarketDiscovery.Page, Never>?

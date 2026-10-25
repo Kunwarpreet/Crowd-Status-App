@@ -11,10 +11,10 @@ Status Home screen with sample nearby and popular markets.
 - `Assets.xcassets` contains the Home screen market and profile images.
 
 Market search uses live Google Places results for the current city. On opening
-search, the app asks for location permission to detect the city; users can also
-enter a city and country manually and tap Apply. Location failures and denied
-permission leave the explicit city field available (initially Bengaluru, India).
-The empty search shows city markets. Typing a name performs a debounced live
+search, the app uses the selected Home city and can detect location automatically.
+Search has no city-name field or Apply button.
+The empty search shows up to seven genuine market suggestions, reusing eligible
+Home results when available and fetching city results otherwise. Typing a name performs a debounced live
 search rather than filtering six samples. Load more markets fetches subsequent
 Google pages and deduplicates by Place ID. Google limits results per query, so
 this is city-wide discovery, not an exhaustive municipal directory. A more
@@ -364,9 +364,9 @@ Nearby. Both checks had zero Place ID overlap with Nearby and no discovery error
 Counts and listing content can change with Google results and the user's location.
 
 Market search queries trim repeated whitespace and avoid adding another “market”
-after a name that already contains Market, Bazaar, Bazar, Mandi or Haat. The search
-city can be changed with Apply or the keyboard submit action. The selected city
-continues to restrict results; searching another city requires changing that field.
+after a name that already contains Market, Bazaar, Bazar, Mandi or Haat. The selected Home city
+continues to restrict results. Search contains only the market-name field; the
+city-name field and Apply button have been removed.
 Search checks up to three consecutive pages when earlier pages contain only
 filtered-out listings, preserving Load more for subsequent pages. Superseded
 requests cannot overwrite newer query results.
@@ -381,3 +381,11 @@ swiftc -module-cache-path /tmp/CrowdStatusSwiftModuleCache Sources/Features/Home
 Live search checks on 25 October 2026 returned Hall Bazar and Guru Bazar in
 Amritsar despite neither having a listed phone number, and KR Market matches
 in Bengaluru, with no search errors.
+
+Search displays at most seven suggestions before typing and keeps them cached
+for that search session. At least five cached Home suggestions avoid an extra
+initial request. Without Home data, city discovery accumulates up to seven
+suggestions across available pages. Typing filters suggestions immediately by
+name, ignoring case, accents, punctuation and spacing and treating Bazar/Bazaar
+alike. Debounced live search still finds other named markets. Clearing the field
+restores the suggestions; Load more is reserved for non-empty searches.
