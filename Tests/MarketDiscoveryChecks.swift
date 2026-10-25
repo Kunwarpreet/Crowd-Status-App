@@ -54,6 +54,13 @@ struct MarketDiscoveryChecks {
         precondition(GoogleMarketDiscovery.nearby([outsideRadius, withinRadius, close], from: origin).map(\.id) == ["close", "within-radius"])
         precondition(GoogleMarketDiscovery.nearby([far, busy, close, close, unavailable], from: origin).map(\.id) == ["close", "busy"])
         precondition(GoogleMarketDiscovery.popular([close, far, busy, busy]).map(\.id) == ["far", "busy", "close"])
+        // Nearby membership is excluded by Place ID before taking Popular's
+        // limit, preserving the review ranking of all remaining candidates.
+        precondition(GoogleMarketDiscovery.popular([close, far, busy, busy], excluding: ["busy", "close"]).map(\.id) == ["far"])
+        precondition(GoogleMarketDiscovery.popular([far, busy, close], excluding: ["far"]).map(\.id) == ["busy", "close"])
+        precondition(GoogleMarketDiscovery.popular([busy, close], excluding: ["busy", "close"]).isEmpty)
+        // Same-name markets with different Place IDs remain separate listings.
+        precondition(GoogleMarketDiscovery.popular([first, second], excluding: [first.id]).map(\.id) == [second.id])
         let restaurant = try place("restaurant", "The Market", "\"restaurant\"")
         let parking = try place("parking", "KR Market parking", "\"transportation_service\"")
         let grocery = try place("grocery", "SUPER MARKET", "\"general_store\"")

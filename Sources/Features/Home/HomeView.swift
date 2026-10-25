@@ -90,7 +90,10 @@ struct HomeView: View {
         }
     }
     private var popularMarkets: [PopularMarket] {
-        homeMarkets.popular.filter { details.isAvailableForHome(placeID: $0.id) }.map { PopularMarket(id: $0.id, name: $0.name, imageName: "", livePlace: $0) }
+        let nearbyIDs = Set(homeMarkets.nearby.map(\.id))
+        return homeMarkets.popular.filter {
+            !nearbyIDs.contains($0.id) && details.isAvailableForHome(placeID: $0.id)
+        }.map { PopularMarket(id: $0.id, name: $0.name, imageName: "", livePlace: $0) }
     }
     private var isDiscoveringMarkets: Bool {
         !homeMarkets.hasCompletedLaunchSkeleton || homeMarkets.isLoading
@@ -277,7 +280,7 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 24) {
                 sectionHeading("Popular", subtitle: cityStore.hasResolvedCity ? "Most reviewed markets in \(cityStore.cityName)" : "Choose your location to discover popular markets")
                 if !isDiscoveringMarkets && cityStore.hasResolvedCity && popularMarkets.isEmpty && homeMarkets.errorMessage == nil {
-                    Text("No popular markets with available opening hours and a phone number found. Try another city.").font(.footnote).foregroundStyle(.secondary)
+                    Text("No other popular markets with available opening hours and a phone number found. Try another city.").font(.footnote).foregroundStyle(.secondary)
                 }
 
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -457,16 +460,18 @@ private struct NearbyMarketCard: View {
             Spacer(minLength: 4)
 
             VStack(spacing: 6) {
-                HStack(spacing: 5) {
-                    Image(systemName: "person.3.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text(market.crowdLevel.title)
-                        .font(.system(size: 12, weight: .semibold))
+                if openingStatus?.isOpen == true {
+                    HStack(spacing: 5) {
+                        Image(systemName: "person.3.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text(market.crowdLevel.title)
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundStyle(market.crowdLevel.foreground)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(market.crowdLevel.background, in: Capsule())
                 }
-                .foregroundStyle(market.crowdLevel.foreground)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(market.crowdLevel.background, in: Capsule())
 
                 HStack(spacing: 2) {
                     Image("LocationPinGray")

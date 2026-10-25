@@ -239,11 +239,13 @@ connect an iPhone, select it as the run destination, and run the app there.
 
 Home uses the shared city/location selection instead of fixed Bengaluru cards. It asks for location permission and displays the detected city. The location label opens market search, where a city can also be entered manually. Nearby combines city results with a Google Places distance-ranked market search, excludes results beyond 8 km, sorts by straight-line distance, and shows at most the nearest four available markets. Manual city selection without coordinates displays a location prompt in Nearby rather than sample distances.
 
-Popular loads the city search pages (up to 60 results) and shows up to eight markets ranked by Google review count, then rating. This ranks the returned market results, rather than claiming an exhaustive city-wide popularity measure. Cards use Google photos, real opening status, and Place IDs to open the matching market details. Home crowd badges remain explicitly labelled demo data. Pull to refresh requests an updated location and reloads the lists.
+Popular loads the city search pages (up to 60 results) and shows up to eight markets ranked by Google review count, then rating. Markets already selected for Nearby are excluded by Place ID before filling Popular, including restored Nearby selections. When the original city results cannot fill Popular, discovery supplements them with popular, bazaar, farmers and flea market searches in the same city, following up to three pages per query and stopping once eight eligible alternatives are found. Results from nearby discovery also join the candidate pool. Supplemental query failures preserve the markets already found. If fewer other eligible markets are available after these searches, Popular shows fewer cards without repeating Nearby. This ranks the returned market results, rather than claiming an exhaustive city-wide popularity measure. Cards use Google photos, real opening status, and Place IDs to open the matching market details. Home crowd badges remain explicitly labelled demo data. Pull to refresh requests an updated location and reloads the lists.
 
 Home and search validate market details before showing cards: name, address, known opening status, a usable schedule with hours for all seven days, and a usable phone number are required. Markets missing either hours or a phone number are excluded from Nearby, Popular and search, including subsequent search pages. Phone numbers must contain 7–15 digits; a valid national number is accepted when the international number is missing or invalid. Concurrent Home/search validation awaits the same detail request. Crowd charts remain demo estimates; real crowd data is not an eligibility requirement. Unavailable markets are skipped and the next qualifying results fill the sections. Closed markets with known hours remain visible. The Home location label uses the geocoded area and city (city alone if no area is supplied); the country remains in the search query for accuracy but is omitted from Home.
 
-Nearby badges display Low/Mid/High. Home and market details share the same driving-route distance from the current coordinates where Apple Maps routing is available; both use straight-line distance while routing is unavailable. Distances always use km (1.2 km / 0.45 km). Both screens track location changes of roughly 100m while active and recalculate routing, refreshing estimates every five minutes. Tracking stops when neither screen is active. Home omits the crowd demo estimates sentence; market details retain their Demo data badge and simulated percentage labels.
+Nearby badges display Low/Mid/High only when the market is confirmed open.
+Closed markets and markets with loading or unavailable hours omit the crowd badge,
+while keeping their opening-status text and distance visible. Home and market details share the same driving-route distance from the current coordinates where Apple Maps routing is available; both use straight-line distance while routing is unavailable. Distances always use km (1.2 km / 0.45 km). Both screens track location changes of roughly 100m while active and recalculate routing, refreshing estimates every five minutes. Tracking stops when neither screen is active. Home omits the crowd demo estimates sentence; market details retain their Demo data badge and simulated percentage labels.
 
 Home caches the last successful Nearby/Popular lists in a shared session store.
 Nearby also persists its selected Place IDs and discovery coordinates across app
@@ -318,3 +320,10 @@ or changing location shows skeletons while discovery runs. Reduce Motion disable
 the shimmer and transition. Each grey placeholder shape draws a muted light-grey highlight sweep on a
 60 fps clock with a soft highlight falloff. The sweep repeats every 1.3 seconds for the entire loading state,
 including when requests take longer than the half-second launch minimum.
+
+Popular discovery fallback checks (no API key needed):
+
+```sh
+swiftc -module-cache-path /tmp/CrowdStatusSwiftModuleCache Sources/Features/Home/MarketOpeningHours.swift Sources/Features/Home/MarketDiscovery.swift Tests/PopularMarketDiscoveryChecks.swift -o /tmp/CrowdStatusPopularChecks
+/tmp/CrowdStatusPopularChecks
+```

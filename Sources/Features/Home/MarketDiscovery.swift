@@ -198,8 +198,8 @@ enum GoogleMarketDiscovery {
             return distance($0) == distance($1) ? $0.id < $1.id : distance($0) < distance($1)
         }
     }
-    static func popular(_ places: [GoogleMarketPlace]) -> [GoogleMarketPlace] {
-        merging([], places).filter(\.isHomeMarket).sorted {
+    static func popular(_ places: [GoogleMarketPlace], excluding placeIDs: Set<String> = []) -> [GoogleMarketPlace] {
+        merging([], places).filter { $0.isHomeMarket && !placeIDs.contains($0.id) }.sorted {
             if ($0.userRatingCount ?? 0) != ($1.userRatingCount ?? 0) {
                 return ($0.userRatingCount ?? 0) > ($1.userRatingCount ?? 0)
             }
@@ -469,6 +469,45 @@ struct NearbyMarketSelection: Codable {
     }
 }
 
+// A broad city query can return mostly the same markets chosen for Nearby.
+// Search other market terms when needed, retaining eligibility and ranking rules.
+@MainActor
+enum HomePopularMarketDiscovery {
+    static func load(
+        candidates: [GoogleMarketPlace],
+        excluding nearbyIDs: Set<String>,
+        search: (String, String?) async throws -> GoogleMarketDiscovery.Page,
+        available: ([GoogleMarketPlace]) async throws -> [GoogleMarketPlace]
+    ) async throws -> [GoogleMarketPlace] {
+        var pool = candidates
+        var results = try await available(GoogleMarketDiscovery.popular(pool, excluding: nearbyIDs))
+        if results.count >= 8 { return Array(results.prefix(8)) }
+
+        for query in ["popular", "bazaar", "farmers", "flea"] {
+            var token: String?
+            // Bound the extra work to three pages per supplemental query.
+            for _ in 0..<3 {
+                try Task.checkCancellation()
+                let page: GoogleMarketDiscovery.Page
+                do {
+                    page = try await search(query, token)
+                } catch {
+                    if error is CancellationError || Task.isCancelled { throw CancellationError() }
+                    // One failed supplemental query must not discard loaded markets.
+                    break
+                }
+                try Task.checkCancellation()
+                pool = GoogleMarketDiscovery.merging(pool, page.places ?? [])
+                results = try await available(GoogleMarketDiscovery.popular(pool, excluding: nearbyIDs))
+                if results.count >= 8 { return Array(results.prefix(8)) }
+                guard let next = page.nextPageToken else { break }
+                token = next
+            }
+        }
+        return results
+    }
+}
+
 @MainActor
 final class HomeMarketStore: ObservableObject {
     static let shared = HomeMarketStore()
@@ -530,16 +569,14 @@ final class HomeMarketStore: ObservableObject {
                 all = GoogleMarketDiscovery.merging(all, page.places ?? [])
                 token = page.nextPageToken
             } while token != nil && all.count < 60
-            let popularCandidates = GoogleMarketDiscovery.popular(all)
-            let availablePopular = try await availableMarkets(popularCandidates, limit: 8)
-            guard self.generation == generation else { return }
             var availableNearby = nearby
             if let location, !reuseNearby {
                 // Circle bias can return places outside its radius; filter explicitly.
                 let page = try await GoogleMarketDiscovery.nearbyMarkets(location: location)
                 try Task.checkCancellation()
                 guard self.generation == generation else { return }
-                let nearbyCandidates = GoogleMarketDiscovery.nearby(GoogleMarketDiscovery.merging(all, page.places ?? []), from: location)
+                all = GoogleMarketDiscovery.merging(all, page.places ?? [])
+                let nearbyCandidates = GoogleMarketDiscovery.nearby(all, from: location)
                 availableNearby = try await availableMarkets(nearbyCandidates, limit: 4)
                 guard self.generation == generation else { return }
                 if availableNearby.isEmpty,
@@ -548,6 +585,19 @@ final class HomeMarketStore: ObservableObject {
                     throw GoogleMarketDiscovery.RequestError.response
                 }
             }
+            // Exclude the final Nearby selection before validating and taking
+            // eight results, so other eligible markets can fill Popular.
+            let nearbyIDs = Set(availableNearby.map(\.id))
+            let availablePopular = try await HomePopularMarketDiscovery.load(
+                candidates: all,
+                excluding: nearbyIDs,
+                search: { query, token in
+                    try await GoogleMarketDiscovery.markets(city: city, query: query, viewport: viewport, pageToken: token)
+                },
+                available: { candidates in
+                    try await self.availableMarkets(candidates, limit: 8)
+                }
+            )
             try Task.checkCancellation()
             guard self.generation == generation else { return }
             // Commit both lists together; navigation back keeps the last successful result.
