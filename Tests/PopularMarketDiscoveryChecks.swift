@@ -33,7 +33,7 @@ struct PopularMarketDiscoveryChecks {
             }, available: available
         )
         precondition(results.map(\.id) == [higherRanked.id, alternative.id])
-        precondition(requests == ["popular|first", "popular|second", "bazaar|first", "farmers|first", "flea|first"])
+        precondition(requests == ["popular|first", "popular|second", "bazaar|first", "farmers|first", "flea|first", "wholesale|first", "vegetable|first", "flower|first", "cloth|first"])
 
         let full = try (0..<8).map { try place("other-\($0)", reviews: $0) }
         requests = []
@@ -75,7 +75,35 @@ struct PopularMarketDiscoveryChecks {
                 return .init(places: [], nextPageToken: "same-token")
             }, available: available
         )
-        precondition(count == 12)
+        precondition(count == 24)
+
+        // Known multi-shop markets can have a shopping-area category, no phone,
+        // and no opening hours. Fill from two to six without duplicating Nearby.
+        for city in ["Amritsar, India", "Bengaluru, India"] {
+            let names = Array(PopularMarketCatalog.queries(city: city).prefix(10))
+            let listings = try names.enumerated().map { index, name in
+                try JSONDecoder().decode(GoogleMarketPlace.self, from: JSONSerialization.data(withJSONObject: [
+                    "id": "destination-\(index)", "displayName": ["text": name],
+                    "formattedAddress": "Centre, \(city)", "types": ["shopping_mall"],
+                    "primaryType": "shopping_mall", "userRatingCount": 100 - index
+                ]))
+            }
+            let nearbyIDs = Set(listings.prefix(4).map(\.id))
+            let destinations = try await HomePopularMarketDiscovery.load(
+                candidates: Array(listings.prefix(6)), city: city, excluding: nearbyIDs,
+                search: { query, _ in
+                    .init(places: zip(names, listings).filter { $0.0 == query }.map { $0.1 }, nextPageToken: nil)
+                },
+                available: { candidates in
+                    Array(candidates.filter { HomeMarketPresentation.hasAvailablePopularData(place: $0) }.prefix(8))
+                }
+            )
+            precondition(destinations.count == 6)
+            precondition(Set(destinations.map(\.id)).isDisjoint(with: nearbyIDs))
+            precondition(destinations.allSatisfy { $0.phoneURL == nil && $0.isPopularMarket })
+        }
+        precondition(PopularMarketCatalog.queries(city: "Bangalore, India") == PopularMarketCatalog.queries(city: "Bengaluru, India"))
+        precondition(PopularMarketCatalog.queries(city: "Unlisted City").isEmpty)
 
         do {
             _ = try await HomePopularMarketDiscovery.load(

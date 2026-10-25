@@ -239,9 +239,9 @@ connect an iPhone, select it as the run destination, and run the app there.
 
 Home uses the shared city/location selection instead of fixed Bengaluru cards. It asks for location permission and displays the detected city. The location label opens market search, where a city can also be entered manually. Nearby combines city results with a Google Places distance-ranked market search, excludes results beyond 8 km, sorts by straight-line distance, and shows at most the nearest four available markets. Manual city selection without coordinates displays a location prompt in Nearby rather than sample distances.
 
-Popular loads the city search pages (up to 60 results) and shows up to eight markets ranked by Google review count, then rating. Markets already selected for Nearby are excluded by Place ID before filling Popular, including restored Nearby selections. When the original city results cannot fill Popular, discovery supplements them with popular, bazaar, farmers and flea market searches in the same city, following up to three pages per query and stopping once eight eligible alternatives are found. Results from nearby discovery also join the candidate pool. Supplemental query failures preserve the markets already found. If fewer other eligible markets are available after these searches, Popular shows fewer cards without repeating Nearby. This ranks the returned market results, rather than claiming an exhaustive city-wide popularity measure. Cards use Google photos, real opening status, and Place IDs to open the matching market details. Home crowd badges remain explicitly labelled demo data. Pull to refresh requests an updated location and reloads the lists.
+Popular loads the city search pages (up to 60 results) and shows up to eight markets ranked by Google review count, then rating. Markets already selected for Nearby are excluded by Place ID before filling Popular, including restored Nearby selections. Discovery targets at least six alternatives (up to eight displayed). When the original city results fall short, it first looks up known market destinations for Amritsar and Bengaluru/Bangalore, then uses popular, bazaar, farmers, flea, wholesale, vegetable, flower and cloth market queries for any city. Named queries use one page, broad queries up to three; discovery stops when at least six eligible alternatives are found. Results from nearby discovery also join the candidate pool. Supplemental query failures preserve the markets already found. If fewer other eligible markets are available after these searches, Popular shows fewer cards without repeating Nearby. This ranks the returned market results, rather than claiming an exhaustive city-wide popularity measure. Cards use Google photos, real opening status, and Place IDs to open the matching market details. Home crowd badges remain explicitly labelled demo data. Pull to refresh requests an updated location and reloads the lists.
 
-Home and search validate market details before showing cards: name, address, known opening status, a usable schedule with hours for all seven days, and a usable phone number are required. Markets missing either hours or a phone number are excluded from Nearby, Popular and search, including subsequent search pages. Phone numbers must contain 7–15 digits; a valid national number is accepted when the international number is missing or invalid. Concurrent Home/search validation awaits the same detail request. Crowd charts remain demo estimates; real crowd data is not an eligibility requirement. Unavailable markets are skipped and the next qualifying results fill the sections. Closed markets with known hours remain visible. The Home location label uses the geocoded area and city (city alone if no area is supplied); the country remains in the search query for accuracy but is omitted from Home.
+Nearby and search validate market details before showing cards: name, address, known opening status, a usable schedule with hours for all seven days, and a usable phone number are required. Markets missing either hours or a phone number are excluded from Nearby and search, including subsequent search pages. Popular requires a genuine market destination with a live listing name and address, but no longer requires a central phone number or a complete hours schedule. Missing hours show Hours unavailable. The detail screen omits the Call control entirely when that listing has no usable phone number. Phone numbers must contain 7–15 digits; a valid national number is accepted when the international number is missing or invalid. Concurrent Home/search validation awaits the same detail request. Crowd charts remain demo estimates; real crowd data is not an eligibility requirement. Unavailable markets are skipped and the next qualifying results fill the sections. Closed markets with known hours remain visible. The Home location label uses the geocoded area and city (city alone if no area is supplied); the country remains in the search query for accuracy but is omitted from Home.
 
 Nearby badges display Low/Mid/High only when the market is confirmed open.
 Closed markets and markets with loading or unavailable hours omit the crowd badge,
@@ -328,15 +328,37 @@ swiftc -module-cache-path /tmp/CrowdStatusSwiftModuleCache Sources/Features/Home
 /tmp/CrowdStatusPopularChecks
 ```
 
-Popular uses stricter destination filtering than general search: a market category
-is required, a supplied primary category must also be a market category, and
-generic market listings must have a market-destination name (Market, Bazaar,
-Bazar, Mandi or Haat). Farmers and flea market categories can use other names.
+Popular uses stricter destination filtering than general search: generic listings
+require a market category and a market-destination name (Market, Bazaar, Bazar,
+Mandi or Haat). Farmers and flea market categories can use other names. Researched
+market destinations can also use shopping-area categories when both the exact
+listing name/alias and the city in its actual address match the catalog. This
+handles real bazaars tagged as shopping areas without admitting arbitrary malls,
+individual shops, similarly named places in other cities or metro stations.
 Merchant names containing Store, Shop, Traders, Suppliers, Enterprises, Sons or
 Jewellers are excluded even when Google also tags them as markets. This excludes
 the reported Prem nath & sons and Punjabi kheti Store listings. The same rule is
 checked against fetched details and cached Home cards before display. Remaining
-destinations retain review-count/rating ranking, hours/phone validation and the
-Nearby exclusion. Ambiguous names can be omitted by this conservative filter.
+destinations retain review-count/rating ranking and the Nearby exclusion.
+Popular allows missing phone/hours; Nearby and search retain their existing validation. Ambiguous names can be omitted by this conservative filter.
 Google's [primary category field](https://developers.google.com/maps/documentation/places/web-service/place-types)
 is fetched alongside the existing category list.
+
+The catalog contains query seeds and identity aliases, not fallback cards, ratings,
+phones or hours. Only live Google Place IDs become cards. Six markets cannot be
+guaranteed for cities with fewer distinct eligible destinations or unavailable
+Google responses; the app preserves genuine results rather than padding with shops.
+
+Market identity sources for the supplemental catalog:
+
+- [Incredible India: Amritsar traditional markets](https://www.prod.incredibleindia.gov.in/content/incredible-india-v2/en/destinations/amritsar/listicles/traditional-markets-of-amritsar.html) — Hall Bazaar, Guru Bazaar and Katra Jaimal Singh.
+- [Incredible India: Amritsar experiences](https://www.incredibleindia.gov.in/en/punjab/amritsar/25-top-amritsar-experiences-you-must) — Lahori Gate Market and Kapda Bazaar.
+- The remaining Amritsar destinations and Bengaluru's KR, Russell, Gandhi, Raja, Jayanagar and Chickpet markets use the existing researched sources linked in MarketDescriptions.swift.
+- [Bengaluru Urban district tourism](https://bengaluruurban.nic.in/en/tourism/) — Commercial Street and Brigade Road shopping districts.
+- [LBB's Malleswaram guide](https://lbb.in/bangalore/guide-malleswaram-shopping-food/) — 8th Cross Malleswaram.
+- [Times of India market reporting](https://timesofindia.indiatimes.com/city/bengaluru/crowds-throng-bengaluru-markets-for-festival-shopping-ash-gourd-prices-rise/amp_articleshow/124242005.cms) — Madiwala, Yeshwanthpur and Vijayanagar markets.
+
+Live smoke checks on 25 October 2026 returned eight Popular markets for both
+Amritsar and Bengaluru using a fresh session and the city viewport centre for
+Nearby. Both checks had zero Place ID overlap with Nearby and no discovery errors.
+Counts and listing content can change with Google results and the user's location.

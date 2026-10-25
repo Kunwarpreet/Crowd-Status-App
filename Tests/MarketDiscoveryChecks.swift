@@ -61,6 +61,22 @@ struct MarketDiscoveryChecks {
         precondition(farmers.isPopularMarket && flea.isPopularMarket)
         precondition(!untyped.isPopularMarket)
         precondition(GoogleMarketDiscovery.popular(reportedShops + [primaryShop, primaryMarket]).map(\.id) == [primaryMarket.id])
+        func destination(_ name: String, city: String, primaryType: String) throws -> GoogleMarketPlace {
+            try JSONDecoder().decode(GoogleMarketPlace.self, from: JSONSerialization.data(withJSONObject: [
+                "id": "known-destination", "displayName": ["text": name],
+                "formattedAddress": city, "types": [primaryType], "primaryType": primaryType
+            ]))
+        }
+        let knownBazaar = try destination("Hall Bazaar", city: "Amritsar, Punjab, India", primaryType: "shopping_mall")
+        precondition(knownBazaar.isPopularMarket && knownBazaar.phoneURL == nil)
+        precondition(HomeMarketPresentation.hasAvailablePopularData(place: knownBazaar))
+        precondition(!HomeMarketPresentation.hasAvailableData(place: knownBazaar, status: nil))
+        let wrongCity = try destination("Hall Bazaar", city: "Another City, India", primaryType: "shopping_mall")
+        let shopInBazaar = try destination("Hall Bazaar Store", city: "Amritsar, India", primaryType: "shopping_mall")
+        let shopCategory = try destination("Hall Bazaar", city: "Amritsar, India", primaryType: "clothing_store")
+        let metroStation = try destination("Chickpet", city: "Bengaluru, India", primaryType: "subway_station")
+        precondition([wrongCity, shopInBazaar, shopCategory, metroStation].allSatisfy { !$0.isPopularMarket })
+        precondition(reportedShops.allSatisfy { !HomeMarketPresentation.hasAvailablePopularData(place: $0) })
         precondition(first.phoneURL?.absoluteString == "tel:+919742638865")
         precondition(first.distance(from: nil) == nil)
         precondition(first.distance(from: CLLocation(latitude: 12.97, longitude: 77.59)) == "0.00 km")

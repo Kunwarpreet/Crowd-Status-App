@@ -94,7 +94,7 @@ struct HomeView: View {
         return homeMarkets.popular.filter {
             !nearbyIDs.contains($0.id)
                 && (details.places[$0.id] ?? $0).isPopularMarket
-                && details.isAvailableForHome(placeID: $0.id)
+                && details.isAvailableForPopular(placeID: $0.id)
         }.map { PopularMarket(id: $0.id, name: $0.name, imageName: "", livePlace: $0) }
     }
     private var isDiscoveringMarkets: Bool {
@@ -282,7 +282,7 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 24) {
                 sectionHeading("Popular", subtitle: cityStore.hasResolvedCity ? "Most reviewed markets in \(cityStore.cityName)" : "Choose your location to discover popular markets")
                 if !isDiscoveringMarkets && cityStore.hasResolvedCity && popularMarkets.isEmpty && homeMarkets.errorMessage == nil {
-                    Text("No other popular markets with available opening hours and a phone number found. Try another city.").font(.footnote).foregroundStyle(.secondary)
+                    Text("No other popular market destinations found. Try another city.").font(.footnote).foregroundStyle(.secondary)
                 }
 
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -1339,9 +1339,6 @@ private struct MarketDetailView: View {
                                 .contentShape(Rectangle())
                         }
                         .accessibilityLabel("Call \(market.name)")
-                    } else {
-                        marketFact(symbol: "phone", text: "Phone unavailable")
-                            .foregroundStyle(AppColors.secondaryText)
                     }
                 }
             }

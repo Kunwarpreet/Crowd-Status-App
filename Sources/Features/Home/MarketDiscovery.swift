@@ -4,6 +4,59 @@ import CoreLocation
 import SwiftUI
 import MapKit
 
+// Query seeds and exact destination aliases, researched from the sources listed
+// in README. These never create cards: every card still needs a live Place ID,
+// matching listing name and city address. Shop names are never whitelisted.
+enum PopularMarketCatalog {
+    private static let cities: [(aliases: [String], destinations: [[String]])] = [
+        (["Amritsar"], [
+            ["Hall Bazaar", "Hall Bazaar Market"],
+            ["Katra Jaimal Singh Bazaar", "Katra Jaimal Singh", "Katra Jaimal Singh Market", "Jaimal Singh Market"],
+            ["Guru Bazaar", "Guru Bazaar Market", "Guru Ka Bazaar"],
+            ["Shastri Market"],
+            ["Katra Ahluwalia Market", "Katra Ahluwalia", "Katra Ahluwalia Bazaar"],
+            ["Pratap Bazaar", "Partap Bazaar", "Pratap Market", "Partap Market"],
+            ["Tahli Wala Bazaar", "Tahli Sahib Bazaar", "Bazaar Tahli Sahib", "Tahli Sahib Market"],
+            ["Mai Sewa Wala Bazaar", "Bazaar Mai Sewan", "Mai Sewan Bazaar", "Bazaar Mai Sewan Wala"],
+            ["Dal Mandi"], ["Mishri Bazaar"], ["Urban Haat", "Urban Haat Market"],
+            ["Lahori Gate Market"], ["Kapda Bazaar"]
+        ]),
+        (["Bengaluru", "Bangalore"], [
+            ["KR Market", "K R Market", "Sri Krishna Rajendra Market", "Sri Krishnarajendra Market", "Krishnarajendra Market", "City Market"],
+            ["Russell Market", "Russel Market"],
+            ["Gandhi Bazaar", "Gandhi Bazaar Market", "Gandhi Bazaar Flower Market"],
+            ["Raja Market"],
+            ["Jayanagar 4th Block Market", "Jayanagar Market", "Jayanagar 4th Block Shopping Complex", "Jayanagar BDA Shopping Complex"],
+            ["Chickpet Market", "Chickpet", "Chickpete", "Chikpet", "Chickpete Market"],
+            ["Commercial Street", "Commercial Street Market"], ["Brigade Road", "Brigade Road Market"],
+            ["Malleshwaram 8th Cross Market", "Malleswaram 8th Cross Market", "8th Cross Malleswaram"],
+            ["Madiwala Market"], ["Yeshwanthpur Market", "Yeshwantpur Market"], ["Vijayanagar Market"]
+        ])
+    ]
+
+    static func queries(city: String) -> [String] {
+        let name = normalize(city.components(separatedBy: ",").first ?? city)
+        return cities.first { $0.aliases.contains { normalize($0) == name } }?
+            .destinations.compactMap(\.first) ?? []
+    }
+
+    static func recognizes(name: String, address: String?) -> Bool {
+        guard let address else { return false }
+        let name = normalize(name)
+        let addressWords = Set(normalize(address).split(separator: " ").map(String.init))
+        return cities.contains { city in
+            city.aliases.contains { addressWords.contains(normalize($0)) }
+                && city.destinations.contains { $0.contains { normalize($0) == name } }
+        }
+    }
+
+    private static func normalize(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .split { !$0.isLetter && !$0.isNumber }
+            .map { $0 == "bazar" ? "bazaar" : String($0) }.joined(separator: " ")
+    }
+}
+
 struct GoogleMarketPlace: Decodable, Hashable, Identifiable {
     struct LocalizedText: Decodable, Hashable { let text: String }
     struct Coordinate: Decodable, Hashable { let latitude: Double; let longitude: Double }
@@ -41,8 +94,15 @@ struct GoogleMarketPlace: Decodable, Hashable, Identifiable {
     // happen to carry a market tag. Missing evidence is excluded conservatively.
     var isPopularMarket: Bool {
         let marketTypes: Set<String> = ["market", "farmers_market", "flea_market"]
-        guard isMarket else { return false }
-        if let primaryType, !marketTypes.contains(primaryType) { return false }
+        let knownDestination = PopularMarketCatalog.recognizes(name: name, address: formattedAddress)
+        guard isMarket || knownDestination else { return false }
+        // Known bazaars may be classified as shopping areas rather than markets.
+        // A specific merchant or transit category still disqualifies a listing.
+        let areaTypes: Set<String> = ["shopping_mall", "tourist_attraction", "historical_landmark", "neighborhood", "sublocality", "point_of_interest", "establishment", "route"]
+        let transitTypes: Set<String> = ["subway_station", "train_station", "bus_station", "bus_stop", "transit_station"]
+        guard Set(types ?? []).isDisjoint(with: transitTypes) else { return false }
+        if let primaryType, !marketTypes.contains(primaryType),
+           !(knownDestination && areaTypes.contains(primaryType)) { return false }
         guard let title = displayName?.text else { return false }
         let words = Set(title.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
             .split { !$0.isLetter && !$0.isNumber }.map(String.init))
@@ -56,7 +116,7 @@ struct GoogleMarketPlace: Decodable, Hashable, Identifiable {
             "mandi", "haat", "haats", "बाजार", "बाज़ार", "मंडी", "ਹਾਟ", "ਬਾਜ਼ਾਰ", "ਮੰਡੀ"
         ]
         let specializedMarket = !(Set(types ?? []).intersection(["farmers_market", "flea_market"]).isEmpty)
-        return !words.isDisjoint(with: marketWords) || specializedMarket
+        return knownDestination || !words.isDisjoint(with: marketWords) || specializedMarket
     }
 
     static func pendingSelection(id: String) -> Self {
@@ -246,7 +306,7 @@ enum GoogleMarketDiscovery {
     }
     static func merging(_ existing: [GoogleMarketPlace], _ incoming: [GoogleMarketPlace]) -> [GoogleMarketPlace] {
         var seen = Set(existing.map(\.id))
-        return existing + incoming.filter { $0.isMarket && seen.insert($0.id).inserted }
+        return existing + incoming.filter { ($0.isMarket || $0.isPopularMarket) && seen.insert($0.id).inserted }
     }
 }
 
@@ -256,6 +316,14 @@ enum HomeMarketPresentation {
         let area = area?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return area.isEmpty || area.caseInsensitiveCompare(city) == .orderedSame ? city : "\(area), \(city)"
     }
+    static func hasAvailablePopularData(place: GoogleMarketPlace?) -> Bool {
+        guard let place, place.isPopularMarket,
+              let name = place.displayName?.text, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let address = place.formattedAddress, !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        // Market districts often have no central phone number or weekly schedule.
+        return true
+    }
+
     static func hasAvailableData(place: GoogleMarketPlace?, status: MarketOpeningStatus?) -> Bool {
         guard let place, place.isMarket, let status, status.isOpen != nil, place.phoneURL != nil,
               let name = place.displayName?.text, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -498,18 +566,22 @@ struct NearbyMarketSelection: Codable {
 enum HomePopularMarketDiscovery {
     static func load(
         candidates: [GoogleMarketPlace],
+        city: String = "",
         excluding nearbyIDs: Set<String>,
         search: (String, String?) async throws -> GoogleMarketDiscovery.Page,
         available: ([GoogleMarketPlace]) async throws -> [GoogleMarketPlace]
     ) async throws -> [GoogleMarketPlace] {
         var pool = candidates
         var results = try await available(GoogleMarketDiscovery.popular(pool, excluding: nearbyIDs))
-        if results.count >= 8 { return Array(results.prefix(8)) }
+        if results.count >= 6 { return Array(results.prefix(8)) }
 
-        for query in ["popular", "bazaar", "farmers", "flea"] {
+        let namedQueries = PopularMarketCatalog.queries(city: city)
+        let queries = namedQueries + ["popular", "bazaar", "farmers", "flea", "wholesale", "vegetable", "flower", "cloth"]
+        for query in queries {
             var token: String?
-            // Bound the extra work to three pages per supplemental query.
-            for _ in 0..<3 {
+            // A named lookup needs one page; broad queries can use up to three.
+            let pageLimit = namedQueries.contains(query) ? 1 : 3
+            for _ in 0..<pageLimit {
                 try Task.checkCancellation()
                 let page: GoogleMarketDiscovery.Page
                 do {
@@ -522,7 +594,7 @@ enum HomePopularMarketDiscovery {
                 try Task.checkCancellation()
                 pool = GoogleMarketDiscovery.merging(pool, page.places ?? [])
                 results = try await available(GoogleMarketDiscovery.popular(pool, excluding: nearbyIDs))
-                if results.count >= 8 { return Array(results.prefix(8)) }
+                if results.count >= 6 { return Array(results.prefix(8)) }
                 guard let next = page.nextPageToken else { break }
                 token = next
             }
@@ -613,6 +685,7 @@ final class HomeMarketStore: ObservableObject {
             let nearbyIDs = Set(availableNearby.map(\.id))
             let availablePopular = try await HomePopularMarketDiscovery.load(
                 candidates: all,
+                city: city,
                 excluding: nearbyIDs,
                 search: { query, token in
                     try await GoogleMarketDiscovery.markets(city: city, query: query, viewport: viewport, pageToken: token)
@@ -644,8 +717,10 @@ final class HomeMarketStore: ObservableObject {
             await MarketDetailsStore.shared.load(placeID: candidate.id)
             try Task.checkCancellation()
             let place = MarketDetailsStore.shared.places[candidate.id] ?? candidate
-            if MarketDetailsStore.shared.isAvailableForHome(placeID: candidate.id),
-               !popularOnly || place.isPopularMarket {
+            let eligible = popularOnly
+                ? MarketDetailsStore.shared.isAvailableForPopular(placeID: candidate.id)
+                : MarketDetailsStore.shared.isAvailableForHome(placeID: candidate.id)
+            if eligible {
                 available.append(place)
                 if available.count == limit { break }
             }
@@ -663,6 +738,9 @@ final class MarketDetailsStore: ObservableObject {
     @Published private(set) var failures: Set<String> = []
     private var loading: [String: Task<Void, Never>] = [:]
     private var expires: [String: Date] = [:]
+    func isAvailableForPopular(placeID: String) -> Bool {
+        !failures.contains(placeID) && HomeMarketPresentation.hasAvailablePopularData(place: places[placeID])
+    }
     func isAvailableForHome(placeID: String) -> Bool {
         !failures.contains(placeID) && HomeMarketPresentation.hasAvailableData(place: places[placeID], status: statuses[placeID])
     }
