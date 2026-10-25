@@ -20,6 +20,7 @@ struct GoogleMarketPlace: Decodable, Hashable, Identifiable {
     let location: Coordinate?
     let viewport: Viewport?
     let types: [String]?
+    let primaryType: String?
     let primaryTypeDisplayName: LocalizedText?
     let rating: Double?
     let userRatingCount: Int?
@@ -36,9 +37,31 @@ struct GoogleMarketPlace: Decodable, Hashable, Identifiable {
     var isHomeMarket: Bool {
         isMarket
     }
+    // Popular is a list of market destinations, not individual merchants that
+    // happen to carry a market tag. Missing evidence is excluded conservatively.
+    var isPopularMarket: Bool {
+        let marketTypes: Set<String> = ["market", "farmers_market", "flea_market"]
+        guard isMarket else { return false }
+        if let primaryType, !marketTypes.contains(primaryType) { return false }
+        guard let title = displayName?.text else { return false }
+        let words = Set(title.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .split { !$0.isLetter && !$0.isNumber }.map(String.init))
+        let merchantWords: Set<String> = [
+            "shop", "shops", "store", "stores", "trader", "traders", "supplier", "suppliers",
+            "enterprises", "sons", "jeweller", "jewellers", "jeweler", "jewelers"
+        ]
+        guard words.isDisjoint(with: merchantWords) else { return false }
+        let marketWords: Set<String> = [
+            "market", "markets", "marketplace", "bazaar", "bazaars", "bazar", "bazars",
+            "mandi", "haat", "haats", "बाजार", "बाज़ार", "मंडी", "ਹਾਟ", "ਬਾਜ਼ਾਰ", "ਮੰਡੀ"
+        ]
+        let specializedMarket = !(Set(types ?? []).intersection(["farmers_market", "flea_market"]).isEmpty)
+        return !words.isDisjoint(with: marketWords) || specializedMarket
+    }
+
     static func pendingSelection(id: String) -> Self {
         Self(id: id, displayName: LocalizedText(text: "Market details unavailable"), formattedAddress: nil,
-             location: nil, viewport: nil, types: nil, primaryTypeDisplayName: nil, rating: nil,
+             location: nil, viewport: nil, types: nil, primaryType: nil, primaryTypeDisplayName: nil, rating: nil,
              userRatingCount: nil, nationalPhoneNumber: nil, internationalPhoneNumber: nil,
              editorialSummary: nil, photos: nil)
     }
@@ -174,7 +197,7 @@ enum GoogleMarketDiscovery {
             ]]
         ]
         if let pageToken { body["pageToken"] = pageToken }
-        return try await search(body: body, fields: "places.id,places.displayName,places.formattedAddress,places.location,places.types,places.rating,places.userRatingCount,places.photos,nextPageToken")
+        return try await search(body: body, fields: "places.id,places.displayName,places.formattedAddress,places.location,places.types,places.primaryType,places.rating,places.userRatingCount,places.photos,nextPageToken")
     }
     static func nearbyMarkets(location: CLLocation) async throws -> Page {
         try await search(body: [
@@ -184,7 +207,7 @@ enum GoogleMarketDiscovery {
                 "center": ["latitude": location.coordinate.latitude, "longitude": location.coordinate.longitude],
                 "radius": 8000.0
             ]]
-        ], fields: "places.id,places.displayName,places.formattedAddress,places.location,places.types,places.rating,places.userRatingCount,places.photos")
+        ], fields: "places.id,places.displayName,places.formattedAddress,places.location,places.types,places.primaryType,places.rating,places.userRatingCount,places.photos")
     }
     static func nearby(_ places: [GoogleMarketPlace], from origin: CLLocation) -> [GoogleMarketPlace] {
         merging([], places).filter(\.isHomeMarket).filter { place in
@@ -199,7 +222,7 @@ enum GoogleMarketDiscovery {
         }
     }
     static func popular(_ places: [GoogleMarketPlace], excluding placeIDs: Set<String> = []) -> [GoogleMarketPlace] {
-        merging([], places).filter { $0.isHomeMarket && !placeIDs.contains($0.id) }.sorted {
+        merging([], places).filter { $0.isPopularMarket && !placeIDs.contains($0.id) }.sorted {
             if ($0.userRatingCount ?? 0) != ($1.userRatingCount ?? 0) {
                 return ($0.userRatingCount ?? 0) > ($1.userRatingCount ?? 0)
             }
@@ -208,7 +231,7 @@ enum GoogleMarketDiscovery {
         }
     }
     static func details(placeID: String) async throws -> (GoogleMarketPlace, MarketOpeningStatus) {
-        let request = try request(url: URL(string: "https://places.googleapis.com/v1/places/\(placeID)?languageCode=en")!, fields: "id,displayName,formattedAddress,location,types,primaryTypeDisplayName,rating,nationalPhoneNumber,internationalPhoneNumber,editorialSummary,photos,businessStatus,currentOpeningHours,regularOpeningHours,timeZone")
+        let request = try request(url: URL(string: "https://places.googleapis.com/v1/places/\(placeID)?languageCode=en")!, fields: "id,displayName,formattedAddress,location,types,primaryType,primaryTypeDisplayName,rating,nationalPhoneNumber,internationalPhoneNumber,editorialSummary,photos,businessStatus,currentOpeningHours,regularOpeningHours,timeZone")
         let data = try await data(for: request)
         let place = try JSONDecoder().decode(GoogleMarketPlace.self, from: data)
         guard place.id == placeID else { throw RequestError.wrongPlace }
@@ -595,7 +618,7 @@ final class HomeMarketStore: ObservableObject {
                     try await GoogleMarketDiscovery.markets(city: city, query: query, viewport: viewport, pageToken: token)
                 },
                 available: { candidates in
-                    try await self.availableMarkets(candidates, limit: 8)
+                    try await self.availableMarkets(candidates, limit: 8, popularOnly: true)
                 }
             )
             try Task.checkCancellation()
@@ -614,14 +637,16 @@ final class HomeMarketStore: ObservableObject {
             errorMessage = error.localizedDescription
         }
     }
-    private func availableMarkets(_ candidates: [GoogleMarketPlace], limit: Int) async throws -> [GoogleMarketPlace] {
+    private func availableMarkets(_ candidates: [GoogleMarketPlace], limit: Int, popularOnly: Bool = false) async throws -> [GoogleMarketPlace] {
         var available: [GoogleMarketPlace] = []
         for candidate in candidates {
             try Task.checkCancellation()
             await MarketDetailsStore.shared.load(placeID: candidate.id)
             try Task.checkCancellation()
-            if MarketDetailsStore.shared.isAvailableForHome(placeID: candidate.id) {
-                available.append(MarketDetailsStore.shared.places[candidate.id] ?? candidate)
+            let place = MarketDetailsStore.shared.places[candidate.id] ?? candidate
+            if MarketDetailsStore.shared.isAvailableForHome(placeID: candidate.id),
+               !popularOnly || place.isPopularMarket {
+                available.append(place)
                 if available.count == limit { break }
             }
         }

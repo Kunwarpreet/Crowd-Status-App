@@ -35,6 +35,32 @@ struct MarketDiscoveryChecks {
         let farmers = try place("farmers", "Growers Cooperative", "\"farmers_market\"")
         let flea = try place("flea", "Weekend Stalls", "\"flea_market\"")
         precondition(GoogleMarketDiscovery.merging([], outlets + [farmers, flea]).map(\.id) == ["farmers", "flea"])
+        // Mixed or incorrect market tags must not promote individual shops.
+        let reportedShops = try [
+            place("prem", "Prem nath & sons"),
+            place("punjabi", "Punjabi kheti Store"),
+            place("prem-case", "PREM NATH AND SONS", "\"market\",\"store\""),
+            place("merchant-bazaar", "Bazaar Traders"),
+            place("merchant-market", "City Market Store"),
+            place("jeweller", "Hall Bazaar Jewellers")
+        ]
+        precondition(reportedShops.allSatisfy { $0.isMarket && !$0.isPopularMarket })
+        let primaryShop = try JSONDecoder().decode(GoogleMarketPlace.self, from: Data("""
+        {"id":"primary-shop","displayName":{"text":"City Market"},
+        "types":["market","clothing_store"],"primaryType":"clothing_store"}
+        """.utf8))
+        precondition(!primaryShop.isPopularMarket)
+        let primaryMarket = try JSONDecoder().decode(GoogleMarketPlace.self, from: Data("""
+        {"id":"primary-market","displayName":{"text":"Hall Bazaar"},
+        "types":["market","store"],"primaryType":"market"}
+        """.utf8))
+        precondition(primaryMarket.isPopularMarket)
+        let mandi = try place("mandi", "Sabzi Mandi")
+        let haat = try place("haat", "Urban Haat")
+        precondition(mandi.isPopularMarket && haat.isPopularMarket)
+        precondition(farmers.isPopularMarket && flea.isPopularMarket)
+        precondition(!untyped.isPopularMarket)
+        precondition(GoogleMarketDiscovery.popular(reportedShops + [primaryShop, primaryMarket]).map(\.id) == [primaryMarket.id])
         precondition(first.phoneURL?.absoluteString == "tel:+919742638865")
         precondition(first.distance(from: nil) == nil)
         precondition(first.distance(from: CLLocation(latitude: 12.97, longitude: 77.59)) == "0.00 km")
@@ -42,7 +68,7 @@ struct MarketDiscoveryChecks {
         precondition(unavailable.phoneURL == nil && unavailable.rating == nil && unavailable.photos == nil)
         func rankedPlace(_ id: String, latitude: Double, reviews: Int, rating: Double) throws -> GoogleMarketPlace {
             try JSONDecoder().decode(GoogleMarketPlace.self, from: Data("""
-            {"id":"\(id)","types":["market"],"location":{"latitude":\(latitude),"longitude":77.59},"rating":\(rating),"userRatingCount":\(reviews)}
+            {"id":"\(id)","displayName":{"text":"\(id) Market"},"types":["market"],"location":{"latitude":\(latitude),"longitude":77.59},"rating":\(rating),"userRatingCount":\(reviews)}
             """.utf8))
         }
         let close = try rankedPlace("close", latitude: 12.971, reviews: 10, rating: 5)

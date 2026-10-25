@@ -6,7 +6,7 @@ struct PopularMarketDiscoveryChecks {
     static func main() async throws {
         func place(_ id: String, reviews: Int) throws -> GoogleMarketPlace {
             try JSONDecoder().decode(GoogleMarketPlace.self, from: Data("""
-            {"id":"\(id)","types":["market"],"userRatingCount":\(reviews)}
+            {"id":"\(id)","displayName":{"text":"\(id) Market"},"types":["market"],"userRatingCount":\(reviews)}
             """.utf8))
         }
         func available(_ candidates: [GoogleMarketPlace]) async throws -> [GoogleMarketPlace] {

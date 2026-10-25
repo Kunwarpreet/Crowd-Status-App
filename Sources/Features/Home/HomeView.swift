@@ -92,7 +92,9 @@ struct HomeView: View {
     private var popularMarkets: [PopularMarket] {
         let nearbyIDs = Set(homeMarkets.nearby.map(\.id))
         return homeMarkets.popular.filter {
-            !nearbyIDs.contains($0.id) && details.isAvailableForHome(placeID: $0.id)
+            !nearbyIDs.contains($0.id)
+                && (details.places[$0.id] ?? $0).isPopularMarket
+                && details.isAvailableForHome(placeID: $0.id)
         }.map { PopularMarket(id: $0.id, name: $0.name, imageName: "", livePlace: $0) }
     }
     private var isDiscoveringMarkets: Bool {

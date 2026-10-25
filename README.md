@@ -327,3 +327,16 @@ Popular discovery fallback checks (no API key needed):
 swiftc -module-cache-path /tmp/CrowdStatusSwiftModuleCache Sources/Features/Home/MarketOpeningHours.swift Sources/Features/Home/MarketDiscovery.swift Tests/PopularMarketDiscoveryChecks.swift -o /tmp/CrowdStatusPopularChecks
 /tmp/CrowdStatusPopularChecks
 ```
+
+Popular uses stricter destination filtering than general search: a market category
+is required, a supplied primary category must also be a market category, and
+generic market listings must have a market-destination name (Market, Bazaar,
+Bazar, Mandi or Haat). Farmers and flea market categories can use other names.
+Merchant names containing Store, Shop, Traders, Suppliers, Enterprises, Sons or
+Jewellers are excluded even when Google also tags them as markets. This excludes
+the reported Prem nath & sons and Punjabi kheti Store listings. The same rule is
+checked against fetched details and cached Home cards before display. Remaining
+destinations retain review-count/rating ranking, hours/phone validation and the
+Nearby exclusion. Ambiguous names can be omitted by this conservative filter.
+Google's [primary category field](https://developers.google.com/maps/documentation/places/web-service/place-types)
+is fetched alongside the existing category list.
