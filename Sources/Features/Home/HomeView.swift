@@ -770,6 +770,13 @@ private struct MarketSearchView: View {
         .onAppear {
             cityStore.detectCity(automatically: true)
         }
+        .task {
+            // Let the navigation transition finish before requesting keyboard focus.
+            do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+            guard selectedMarket == nil, alertMarket == nil else { return }
+            isSearchFocused = true
+        }
+        .onDisappear { isSearchFocused = false }
         .task(id: searchID) {
             search.seedSuggestions(HomeMarketStore.shared.searchSuggestions(city: cityStore.city), city: cityStore.city)
             await search.search(city: cityStore.city, query: searchText)

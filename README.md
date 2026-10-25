@@ -404,3 +404,7 @@ limited to seven.
 Live partial-name checks on 25 October 2026: chh returned Chheharta Bazar in
 Amritsar on a fresh Search store; chh baz also matched it. hal returned Hall Bazar
 and russ returned Russell Market in Bengaluru, without search errors.
+
+The Search markets field automatically receives focus after the screen's
+navigation transition, displaying the cursor and software keyboard without a
+tap. Leaving the screen cancels the focus request and clears keyboard focus.
