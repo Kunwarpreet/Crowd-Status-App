@@ -385,7 +385,22 @@ in Bengaluru, with no search errors.
 Search displays at most seven suggestions before typing and keeps them cached
 for that search session. At least five cached Home suggestions avoid an extra
 initial request. Without Home data, city discovery accumulates up to seven
-suggestions across available pages. Typing filters suggestions immediately by
-name, ignoring case, accents, punctuation and spacing and treating Bazar/Bazaar
-alike. Debounced live search still finds other named markets. Clearing the field
+suggestions across available pages. Typing filters the full city-session market cache immediately by name,
+including markets beyond the seven visible suggestions. Matching ignores case,
+accents, punctuation and spacing, treats Bazar/Bazaar alike, and accepts multiple
+partial words in any order (for example, chh baz or baz chh). Debounced live search still finds other named markets. Clearing the field
 restores the suggestions; Load more is reserved for non-empty searches.
+
+Partial-name searches also use [Places Autocomplete (New)](https://developers.google.com/maps/documentation/places/web-service/place-autocomplete)
+with the raw typed input and the selected city's viewport. Up to five primary
+market/shopping-area categories scope predictions, and fetched listing details
+still enforce the genuine-market policy before display. The first search page
+merges autocomplete and text-search results by Place ID; later pages use text
+search. A failure of either source preserves results from the other, and cancelled
+or older queries cannot replace current results. The city-session cache retains
+all discovered eligible markets while the empty-field suggestion list stays
+limited to seven.
+
+Live partial-name checks on 25 October 2026: chh returned Chheharta Bazar in
+Amritsar on a fresh Search store; chh baz also matched it. hal returned Hall Bazar
+and russ returned Russell Market in Bengaluru, without search errors.

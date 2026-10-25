@@ -267,6 +267,79 @@ enum GoogleMarketDiscovery {
         if let pageToken { body["pageToken"] = pageToken }
         return try await search(body: body, fields: "places.id,places.displayName,places.formattedAddress,places.location,places.types,places.primaryType,places.rating,places.userRatingCount,places.photos,nextPageToken")
     }
+    struct AutocompleteResponse: Decodable {
+        struct Suggestion: Decodable {
+            struct Prediction: Decodable {
+                struct StructuredFormat: Decodable {
+                    let mainText: GoogleMarketPlace.LocalizedText?
+                    let secondaryText: GoogleMarketPlace.LocalizedText?
+                }
+                let placeId: String
+                let structuredFormat: StructuredFormat?
+                let types: [String]?
+
+                var candidate: GoogleMarketPlace {
+                    GoogleMarketPlace(
+                        id: placeId, displayName: structuredFormat?.mainText,
+                        formattedAddress: structuredFormat?.secondaryText?.text,
+                        location: nil, viewport: nil, types: types, primaryType: nil,
+                        primaryTypeDisplayName: nil, rating: nil, userRatingCount: nil,
+                        nationalPhoneNumber: nil, internationalPhoneNumber: nil,
+                        editorialSummary: nil, photos: nil
+                    )
+                }
+            }
+            let placePrediction: Prediction?
+        }
+        let suggestions: [Suggestion]?
+        var candidates: [GoogleMarketPlace] {
+            (suggestions ?? []).compactMap { $0.placePrediction?.candidate }
+        }
+    }
+
+    static func autocompleteBody(query: String, viewport: GoogleMarketPlace.Viewport) -> [String: Any] {
+        [
+            "input": query.trimmingCharacters(in: .whitespacesAndNewlines),
+            "languageCode": "en",
+            "includedPrimaryTypes": ["market", "farmers_market", "flea_market", "shopping_mall", "tourist_attraction"],
+            "locationRestriction": ["rectangle": [
+                "low": ["latitude": viewport.low.latitude, "longitude": viewport.low.longitude],
+                "high": ["latitude": viewport.high.latitude, "longitude": viewport.high.longitude]
+            ]]
+        ]
+    }
+
+    static func autocompleteMarkets(query: String, viewport: GoogleMarketPlace.Viewport) async throws -> [GoogleMarketPlace] {
+        var request = try request(
+            url: URL(string: "https://places.googleapis.com/v1/places:autocomplete")!,
+            fields: "suggestions.placePrediction.placeId,suggestions.placePrediction.structuredFormat,suggestions.placePrediction.types"
+        )
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: autocompleteBody(query: query, viewport: viewport))
+        return try JSONDecoder().decode(AutocompleteResponse.self, from: await data(for: request)).candidates
+    }
+
+    static func searchMarketPage(city: String, query: String, viewport: GoogleMarketPlace.Viewport, pageToken: String?) async throws -> Page {
+        guard pageToken == nil, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return try await markets(city: city, query: query, viewport: viewport, pageToken: pageToken)
+        }
+        // Autocomplete handles incomplete words; text search retains broader
+        // keyword results and pagination. Failure of one source keeps the other.
+        async let predicted = try? autocompleteMarkets(query: query, viewport: viewport)
+        do {
+            let page = try await markets(city: city, query: query, viewport: viewport, pageToken: nil)
+            let predictions = await predicted ?? []
+            try Task.checkCancellation()
+            return .init(places: merging(predictions, page.places ?? []), nextPageToken: page.nextPageToken)
+        } catch {
+            let predictions = await predicted ?? []
+            try Task.checkCancellation()
+            guard !predictions.isEmpty else { throw error }
+            return .init(places: merging([], predictions), nextPageToken: nil)
+        }
+    }
+
     static func nearbyMarkets(location: CLLocation) async throws -> Page {
         try await search(body: [
             "textQuery": "markets", "languageCode": "en", "pageSize": 20,
@@ -457,7 +530,7 @@ struct MarketSearchService {
     static var live: Self {
         Self(
             viewport: { try await GoogleMarketDiscovery.cityViewport($0) },
-            page: { try await GoogleMarketDiscovery.markets(city: $0, query: $1, viewport: $2, pageToken: $3) },
+            page: { try await GoogleMarketDiscovery.searchMarketPage(city: $0, query: $1, viewport: $2, pageToken: $3) },
             resolve: { candidate in
                 await MarketDetailsStore.shared.load(placeID: candidate.id)
                 guard MarketDetailsStore.shared.isAvailableForPopular(placeID: candidate.id) else { return nil }
@@ -474,6 +547,7 @@ final class MarketSearchStore: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var nextPageToken: String?
     @Published private(set) var suggestions: [GoogleMarketPlace] = []
+    @Published private var cityMarkets: [GoogleMarketPlace] = []
     private var suggestionsCity = ""
     private var generation = UUID()
     private var city = ""
@@ -490,26 +564,36 @@ final class MarketSearchStore: ObservableObject {
         if suggestionsCity != city {
             suggestionsCity = city
             suggestions = []
+            cityMarkets = []
         }
+        cityMarkets = GoogleMarketDiscovery.merging(cityMarkets, candidates).filter(\.isPopularMarket)
         suggestions = Array(GoogleMarketDiscovery.merging(suggestions, candidates)
             .filter(\.isPopularMarket).prefix(7))
     }
 
     func matchingMarkets(city: String, query: String) -> [GoogleMarketPlace] {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let local = suggestionsCity == city ? suggestions : []
-        if query.isEmpty { return Array(local.prefix(7)) }
+        if query.isEmpty { return suggestionsCity == city ? suggestions : [] }
+        let local = suggestionsCity == city ? cityMarkets : []
         let live = self.city == city && self.query == query ? markets : []
         return GoogleMarketDiscovery.merging(local, live).filter { Self.matches($0.name, query: query) }
     }
 
     private static func matches(_ name: String, query: String) -> Bool {
-        func normalize(_ text: String) -> String {
+        func words(_ text: String) -> [String] {
             text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
                 .replacingOccurrences(of: "bazaar", with: "bazar")
-                .filter { $0.isLetter || $0.isNumber }
+                .split { !$0.isLetter && !$0.isNumber }.map(String.init)
         }
-        return normalize(name).contains(normalize(query))
+        let nameWords = words(name)
+        let queryWords = words(query)
+        let compactName = nameWords.joined()
+        guard !queryWords.isEmpty else { return true }
+        // Contiguous matching handles KR / K R. Token matching handles multiple
+        // partial words in any order, such as “chh baz” and “baz chh”.
+        return compactName.contains(queryWords.joined()) || queryWords.allSatisfy { keyword in
+            nameWords.contains { $0.hasPrefix(keyword) }
+        }
     }
 
     func search(city: String, query: String) async {
@@ -519,7 +603,7 @@ final class MarketSearchStore: ObservableObject {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         self.query = query
         seedSuggestions([], city: city)
-        markets = query.isEmpty ? suggestions : suggestions.filter { Self.matches($0.name, query: query) }
+        markets = query.isEmpty ? suggestions : cityMarkets.filter { Self.matches($0.name, query: query) }
         nextPageToken = nil
         errorMessage = nil
         isLoading = true
@@ -544,6 +628,7 @@ final class MarketSearchStore: ObservableObject {
                 markets = suggestions
                 nextPageToken = nil
             } else {
+                cityMarkets = GoogleMarketDiscovery.merging(cityMarkets, page.places ?? [])
                 markets = GoogleMarketDiscovery.merging(markets, page.places ?? [])
                 nextPageToken = page.nextPageToken
             }
@@ -563,6 +648,7 @@ final class MarketSearchStore: ObservableObject {
             let page = try await availablePage(city: city, query: query, viewport: viewport, token: token, generation: generation)
             try Task.checkCancellation()
             guard self.generation == generation else { return }
+            cityMarkets = GoogleMarketDiscovery.merging(cityMarkets, page.places ?? [])
             markets = GoogleMarketDiscovery.merging(markets, page.places ?? [])
             nextPageToken = page.nextPageToken
         } catch {
