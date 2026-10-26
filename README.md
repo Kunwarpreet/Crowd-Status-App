@@ -443,3 +443,8 @@ See [Demo and live notification setup](Documentation/LiveCrowdNotifications.md)
 for testing, scheduling limits, remote push explanation and Apple Developer setup.
 Real remote alerts still need a supported developer team, APNs backend and live
 crowd source. No generated data is represented as an actual crowd measurement.
+
+On Search, tapping outside the search bar dismisses keyboard focus, including
+blank areas and result rows. Taps within the bar keep it active. Outside taps
+also cancel the initial delayed autofocus, preventing an immediate reopening.
+The tap gesture runs alongside buttons so result selection still works.

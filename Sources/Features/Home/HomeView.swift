@@ -654,6 +654,8 @@ private struct MarketSearchView: View {
     @Environment(\.dismiss) private var dismiss
     @FocusState private var isSearchFocused: Bool
     @State private var searchText = ""
+    @State private var searchBarFrame = CGRect.zero
+    @State private var allowsAutomaticFocus = true
     @State private var selectedMarket: MarketSearchResult?
     @State private var alertMarket: MarketSearchResult?
 
@@ -703,6 +705,14 @@ private struct MarketSearchView: View {
                 .frame(height: 57)
                 .background(Color.white)
                 .clipShape(RoundedRectangle(cornerRadius: 16))
+                .background {
+                    GeometryReader { geometry in
+                        Color.clear.preference(
+                            key: MarketSearchBarFrameKey.self,
+                            value: geometry.frame(in: .named("marketSearchScreen"))
+                        )
+                    }
+                }
                 .overlay {
                     RoundedRectangle(cornerRadius: 16)
                         .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
@@ -760,6 +770,17 @@ private struct MarketSearchView: View {
             Spacer(minLength: 0)
         }
         .background(Color.white)
+        .coordinateSpace(name: "marketSearchScreen")
+        .contentShape(Rectangle())
+        .onPreferenceChange(MarketSearchBarFrameKey.self) { searchBarFrame = $0 }
+        .simultaneousGesture(
+            SpatialTapGesture(coordinateSpace: .named("marketSearchScreen"))
+                .onEnded { tap in
+                    guard !searchBarFrame.contains(tap.location) else { return }
+                    allowsAutomaticFocus = false
+                    isSearchFocused = false
+                }
+        )
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(item: $selectedMarket) { market in
             MarketDetailView(market: market)
@@ -768,12 +789,13 @@ private struct MarketSearchView: View {
             MarketAlertSheet(market: market)
         }
         .onAppear {
+            allowsAutomaticFocus = true
             cityStore.detectCity(automatically: true)
         }
         .task {
             // Let the navigation transition finish before requesting keyboard focus.
             do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
-            guard selectedMarket == nil, alertMarket == nil else { return }
+            guard allowsAutomaticFocus, selectedMarket == nil, alertMarket == nil else { return }
             isSearchFocused = true
         }
         .onDisappear { isSearchFocused = false }
@@ -782,6 +804,11 @@ private struct MarketSearchView: View {
             await search.search(city: cityStore.city, query: searchText)
         }
     }
+}
+
+private struct MarketSearchBarFrameKey: PreferenceKey {
+    static let defaultValue = CGRect.zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
 }
 
 private struct MarketSearchResultRow: View {
