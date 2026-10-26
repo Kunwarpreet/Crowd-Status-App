@@ -1311,13 +1311,6 @@ private struct MarketDetailView: View {
                     .font(.system(size: 14, weight: .regular))
                     .foregroundStyle(.black)
                     .fixedSize(horizontal: false, vertical: true)
-                Link(destination: description.sourceURL) {
-                    Label("Source: \(description.sourceName)", systemImage: "arrow.up.right")
-                        .font(.system(size: 12, weight: .medium))
-                        .frame(minHeight: 44, alignment: .leading)
-                }
-                .tint(AppColors.primary)
-                .accessibilityHint("Opens the source for this market description")
             } else {
                 Text(market.resolvedPlaceID != nil && details.places[market.id] == nil && !details.failures.contains(market.id)
                      ? "Loading market description…"

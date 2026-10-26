@@ -270,7 +270,7 @@ swiftc -module-cache-path /tmp/CrowdStatusSwiftModuleCache Sources/Features/Home
 ### Market descriptions
 
 The market detail About section uses researched descriptions from
-`MarketDescriptions.swift`, each with a visible source link. Checked on
+`MarketDescriptions.swift`, with source references retained in the catalog. Checked on
 22 October 2026. The catalog contains 19 entries across Bengaluru and Amritsar.
 The approved Justdial wording is used for Raja Market, Russell Market and the
 separate KR Market Flower Market listing. Raja's source is explicitly labelled
@@ -282,14 +282,14 @@ Other researched entries cover Gandhi Bazaar, Jayanagar 4th Block, Chickpet,
 Hall Bazaar, Katra Jaimal Singh, Guru Bazaar, Shastri Market, Katra Ahluwalia,
 Pratap Bazaar, Tahli Wala Bazaar, Mai Sewa Wala Bazaar, Dal Mandi, Mishri Bazaar,
 Urban Haat and Lawrence Road. Sources include Incredible India, LBB,
-Karnataka.com and The Tribune. Each entry links to its supporting page.
+Karnataka.com and The Tribune. Each catalog entry retains its supporting page; the About screen displays the description without a source link.
 
 Descriptions match an existing exact Google Place ID or an explicitly supported
 market name together with the city in that listing's address. They never use the
 user's current city to identify a market. Every other discovered listing uses
 its existing Google Places editorial summary, unchanged, when supplied. If no
 summary is supplied, About shows the listing's actual category and address,
-with a Google Maps source link. It explicitly states that a main product
+with Google Maps source metadata retained internally. It explicitly states that a main product
 specialty is not supplied. This fallback covers new markets and cities without
 inventing specialties from market names. It is a listing overview, not a
 researched claim about what that market is famous for.
