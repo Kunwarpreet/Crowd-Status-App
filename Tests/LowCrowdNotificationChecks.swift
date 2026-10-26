@@ -63,6 +63,14 @@ struct LowCrowdNotificationChecks {
         let seenAgain = MarketNotificationReadState.markingSeen(notificationIDs: ["lowCrowd|new"], seen: restoredSeen)
         precondition(MarketNotificationReadState.unreadIDs(notificationIDs: newIDs, seen: seenAgain, cleared: Data()).isEmpty)
         precondition(MarketNotificationReadState.unreadIDs(notificationIDs: [], seen: Data(), cleared: Data()).isEmpty)
+        let route = MarketPushRoute(userInfo: ["placeID": "market-one", "marketName": "City Market"])
+        precondition(route?.id == "market-one" && route?.marketName == "City Market")
+        precondition(MarketPushRoute(userInfo: ["placeID": "", "marketName": "City Market"]) == nil)
+        precondition(MarketPushRoute(userInfo: ["placeID": "market-one"]) == nil)
+        precondition(MarketPushRoute(userInfo: ["placeID": 123, "marketName": "City Market"]) == nil)
+        precondition(MarketPushRoute(userInfo: ["placeID": "market-one", "marketName": "  "]) == nil)
+        let trimmedRoute = MarketPushRoute(userInfo: ["placeID": " market-two ", "marketName": " City Market "])
+        precondition(trimmedRoute?.id == "market-two" && trimmedRoute?.marketName == "City Market")
         print("Low crowd notification checks passed")
     }
 }

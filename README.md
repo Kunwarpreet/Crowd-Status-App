@@ -62,12 +62,14 @@ card’s Search Market button opens the same search screen in alert setup mode;
 selecting a result opens that market’s notification popup. Detail page alert
 buttons also open the popup. From/To wheel pickers select the time window,
 Set Alert saves it locally per market and shows success, and Done closes it.
-Saved times are restored on reopening. These preferences do not yet schedule
-notifications; recurring alerts based on crowd levels require a live data service.
+Saved times are restored on reopening. Saving an alert now requests iPhone
+notification permission and schedules local Demo notifications using simulated
+crowd levels during market hours and saved time windows. Genuine live alerts
+still require a real feed and server; demo notifications are clearly labelled.
 The notification icon on every market detail page opens a native iPhone alert
 asking "Do you want to get notified everytime when there is low crowd."
 Notified saves that market's low-crowd preference locally and shows an animated
-white "Notification Set" toast with a green checkmark for 3.5 seconds after the
+white "Alert Saved" toast with a green checkmark for 3.5 seconds after the
 native alert finishes dismissing. The toast is centered between the back and
 notification buttons over the hero image, without moving either button. Enabled
 markets show a green bell with a checkmark; this state survives reopening the
@@ -79,7 +81,8 @@ again; other markets and saved time-window alerts are preserved. Cancel
 returns to the detail screen. Toast padding is 8pt vertically and 12pt
 horizontally, with an 8pt gap and 16pt corner radius. The separate Set Alert
 button continues to configure a time window. Low-crowd preferences are stored
-under `lowCrowdNotificationMarkets`; they do not yet deliver push notifications.
+under `lowCrowdNotificationMarkets`. These preferences now schedule local demo
+alerts; server-originated live push remains unconfigured.
 The Home bell opens Notifications, displaying saved low-crowd confirmations
 and market alert time windows, or an empty state when no notifications remain.
 Earlier low-crowd preferences are migrated into the list. Each confirmation
@@ -408,3 +411,35 @@ and russ returned Russell Market in Bengaluru, without search errors.
 The Search markets field automatically receives focus after the screen's
 navigation transition, displaying the cursor and software keyboard without a
 tap. Leaving the screen cancels the focus request and clears keyboard focus.
+
+### iPhone demo notifications
+
+Market bell preferences and saved From/To windows now schedule local iPhone
+notifications from the same generated demo crowd data as market details. They
+require notification permission, but work with the current Personal Team and no
+backend. Remote push stays optional, with no APS entitlement in the default build.
+
+Notifications say Demo and only schedule a low-crowd event when the generated
+percentage is below 35%, the market is open and its enabled alert times permit it.
+Saved From/To windows apply to one occurrence only, anchored to when they were
+saved. Both pickers exclude past hours/minutes in the market timezone, and the
+end must follow the start within one opening interval. The app validates again
+when saving. All newly saved windows are for today; past selections are rejected
+rather than moved to tomorrow. Alerts stop at that fixed end time and never recur when the app
+reopens. A saved window takes precedence over the market's unrestricted bell.
+The internal 72-hour horizon only applies to unrestricted bell preferences. An
+hour separates low-crowd events, with 48 requests globally. Already scheduled
+alerts can be delivered while the app is closed.
+Removing an alert reconciles pending notifications. From/To windows do not renew automatically; expired windows require an explicit
+new save.
+
+**Send Demo Preview** in the saved-alert confirmation schedules a sample banner
+about five seconds later. The preview is explicitly a test and does not require
+the market to be low or open. Tapping notifications opens the selected Place ID.
+Denied permission offers Open Notification Settings. Foreground banners and sounds
+are enabled, subject to iPhone Focus and notification settings.
+
+See [Demo and live notification setup](Documentation/LiveCrowdNotifications.md)
+for testing, scheduling limits, remote push explanation and Apple Developer setup.
+Real remote alerts still need a supported developer team, APNs backend and live
+crowd source. No generated data is represented as an actual crowd measurement.

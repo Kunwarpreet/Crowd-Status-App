@@ -852,7 +852,8 @@ private struct LiveCrowdIndicator: View {
     }
 }
 
-private struct MarketDetailView: View {
+struct MarketDetailView: View {
+    @ObservedObject private var pushNotifications = MarketPushNotifications.shared
     @ObservedObject private var details = MarketDetailsStore.shared
     @ObservedObject private var journeys = MarketJourneyStore.shared
     @ObservedObject private var cityStore = MarketCityStore.shared
@@ -869,6 +870,8 @@ private struct MarketDetailView: View {
     @State private var isRemovingNotification = false
     @State private var showsNotificationSet = false
     @State private var notificationToastID: UUID?
+    @State private var notificationSetupID: UUID?
+    @State private var showsNotificationSetup = false
 
     let market: MarketSearchResult
 
@@ -948,6 +951,27 @@ private struct MarketDetailView: View {
                 Button("Cancel", role: .cancel) {}
             }
         }
+        .task(id: notificationSetupID) {
+            guard notificationSetupID != nil else { return }
+            do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+            await pushNotifications.requestPermissionForSavedAlert()
+            guard !Task.isCancelled else { return }
+            showsNotificationSetup = true
+        }
+        .alert("Demo notifications", isPresented: $showsNotificationSetup) {
+            if let placeID = market.resolvedPlaceID,
+               pushNotifications.authorizationStatus == .authorized || pushNotifications.authorizationStatus == .provisional {
+                Button("Send Demo Preview") {
+                    Task { await pushNotifications.sendDemoPreview(placeID: placeID, marketName: market.name) }
+                }
+            }
+            if pushNotifications.authorizationStatus == .denied {
+                Button("Open Settings") { pushNotifications.openSettings() }
+            }
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(pushNotifications.setupMessage(for: market.resolvedPlaceID))
+        }
         .task(id: notificationToastID) {
             guard notificationToastID != nil else { return }
             do {
@@ -979,7 +1003,7 @@ private struct MarketDetailView: View {
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(Color(hex: 0x00C853))
                 .accessibilityHidden(true)
-            Text("Notification Set")
+            Text("Alert Saved")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.black)
                 .lineLimit(1)
@@ -1011,6 +1035,7 @@ private struct MarketDetailView: View {
         showsNotificationConfirmation = false
         showsNotificationSet = false
         notificationToastID = UUID()
+        notificationSetupID = UUID()
     }
 
     private var lowCrowdNotificationsEnabled: Bool {
@@ -1023,6 +1048,8 @@ private struct MarketDetailView: View {
         notificationMarkets = UserDefaults.standard.data(forKey: "lowCrowdNotificationMarkets") ?? Data()
         showsNotificationSet = false
         notificationToastID = nil
+        notificationSetupID = nil
+        Task { await pushNotifications.synchronizeDemoAlerts() }
     }
 
     private var notificationButtonIcon: some View {
@@ -1604,7 +1631,7 @@ private struct MarketNotificationsView: View {
                                 VStack(alignment: .leading, spacing: 8) {
                                     Text("Notification set for \(alert.marketName)")
                                         .font(.system(size: 16, weight: .semibold))
-                                    Text("Low crowd notification enabled")
+                                    Text("Low crowd alert preference saved")
                                         .font(.system(size: 14, weight: .medium))
                                     Text("Notification preference saved")
                                         .font(.system(size: 12, weight: .medium))
@@ -1722,56 +1749,24 @@ private struct EmptyNotificationsIllustration: View {
     }
 }
 
-private struct MarketAlertWindow: Codable {
-    let marketName: String
-    let fromMinutes: Int
-    let toMinutes: Int
-    var placeID: String? = nil
-    var savedAt: Date? = Date()
-
-    var notificationID: String {
-        "\(placeID ?? marketName)|\(fromMinutes)|\(toMinutes)|\(savedAt?.timeIntervalSince1970 ?? 0)"
-    }
-
-    func save() {
-        let key = "marketAlertWindows"
-        let existing = UserDefaults.standard.data(forKey: key)
-        var windows = existing.flatMap { try? JSONDecoder().decode([Self].self, from: $0) } ?? []
-        windows.removeAll { record in
-            if let placeID {
-                return record.placeID == placeID || (record.placeID == nil && record.marketName == marketName)
-            }
-            return record.placeID == nil && record.marketName == marketName
-        }
-        windows.append(self)
-        if let data = try? JSONEncoder().encode(windows) {
-            UserDefaults.standard.set(data, forKey: key)
-        }
-    }
-
-    static func allSaved() -> [Self] {
-        guard let data = UserDefaults.standard.data(forKey: "marketAlertWindows"),
-              let windows = try? JSONDecoder().decode([Self].self, from: data) else { return [] }
-        return windows
-    }
-
-    static func saved(for marketName: String, placeID: String? = nil) -> Self? {
-        let windows = allSaved()
-        if let placeID, let saved = windows.first(where: { $0.placeID == placeID }) { return saved }
-        return windows.first { $0.placeID == nil && $0.marketName == marketName }
-    }
-}
 
 private struct MarketAlertSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var pushNotifications = MarketPushNotifications.shared
     @ObservedObject private var details = MarketDetailsStore.shared
     let market: MarketSearchResult
     @State private var fromMinutes = 130
     @State private var toMinutes = 790
     @State private var isSaved = false
+    @State private var clock = Date()
+    @State private var validationError: String?
+
+    private var marketTimeZoneID: String { details.statuses[market.id]?.timeZoneID ?? "Asia/Kolkata" }
 
     private var alertHours: MarketAlertHours? {
-        details.statuses[market.id].flatMap { MarketAlertHours(status: $0) }
+        details.statuses[market.id].flatMap {
+            MarketAlertHours(status: $0, now: clock)?.remaining(after: clock, timeZoneID: $0.timeZoneID)
+        }
     }
 
     private var canSave: Bool {
@@ -1779,13 +1774,33 @@ private struct MarketAlertSheet: View {
     }
 
     private func adjustSelection() {
-        guard let hours = alertHours, let first = hours.ranges.first else { return }
-        fromMinutes = hours.adjusted(fromMinutes)
-        toMinutes = hours.adjusted(toMinutes)
-        if !hours.permits(from: fromMinutes, to: toMinutes) {
-            fromMinutes = first.lowerBound
-            toMinutes = first.upperBound
+        guard let hours = alertHours, !hours.startMinutes.isEmpty else { return }
+        if !hours.startMinutes.contains(fromMinutes) {
+            fromMinutes = hours.startMinutes.min { abs($0 - fromMinutes) < abs($1 - fromMinutes) }!
         }
+        adjustEndSelection()
+    }
+
+    private func adjustEndSelection() {
+        guard let values = alertHours?.endMinutes(after: fromMinutes), !values.isEmpty else { return }
+        if !values.contains(toMinutes) {
+            toMinutes = values.min { abs($0 - toMinutes) < abs($1 - toMinutes) }!
+        }
+    }
+
+    private func saveAlert() {
+        let now = Date()
+        guard let status = details.statuses[market.id],
+              let hours = MarketAlertHours(status: status, now: now)?.remaining(after: now, timeZoneID: status.timeZoneID),
+              hours.permits(from: fromMinutes, to: toMinutes) else {
+            validationError = "That time has passed or is outside market hours. Choose a future start time and a later end time today."
+            clock = now
+            adjustSelection()
+            return
+        }
+        MarketAlertWindow(marketName: market.name, fromMinutes: fromMinutes, toMinutes: toMinutes,
+                          placeID: market.resolvedPlaceID, savedAt: now).save()
+        isSaved = true
     }
 
     var body: some View {
@@ -1815,6 +1830,24 @@ private struct MarketAlertSheet: View {
         .task {
             if let placeID = market.resolvedPlaceID { await details.load(placeID: placeID) }
         }
+        .task(id: isSaved) {
+            guard isSaved else { return }
+            await pushNotifications.requestPermissionForSavedAlert()
+        }
+        .task {
+            while !Task.isCancelled && !isSaved {
+                clock = Date()
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            }
+        }
+        .alert("Invalid alert time", isPresented: Binding(
+            get: { validationError != nil }, set: { if !$0 { validationError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(validationError ?? "Choose a future time today.")
+        }
+        .onChange(of: fromMinutes) { _, _ in adjustEndSelection() }
         .onChange(of: alertHours) { _, _ in
             adjustSelection()
         }
@@ -1829,19 +1862,19 @@ private struct MarketAlertSheet: View {
                 .padding(.top, 40)
 
             if let hours = alertHours, !hours.ranges.isEmpty {
-                Text("Market hours today: \(hours.label)")
-                    .font(.system(size: 14, weight: .medium))
+                Text("*Past times are unavailable. Choose a future time today.")
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(AppColors.secondaryText)
 
                 VStack(alignment: .leading, spacing: 12) {
                     Text("From")
                         .font(.system(size: 16, weight: .semibold))
-                    MarketTimeWheel(minutesSinceMidnight: $fromMinutes, label: "From", allowedHours: hours.hours)
+                    MarketTimeWheel(minutesSinceMidnight: $fromMinutes, label: "From", allowedMinutes: hours.startMinutes)
                 }
                 VStack(alignment: .leading, spacing: 12) {
                     Text("To")
                         .font(.system(size: 16, weight: .semibold))
-                    MarketTimeWheel(minutesSinceMidnight: $toMinutes, label: "To", allowedHours: hours.hours)
+                    MarketTimeWheel(minutesSinceMidnight: $toMinutes, label: "To", allowedMinutes: hours.endMinutes(after: fromMinutes))
                 }
                 if !canSave {
                     Text("Choose an end time after the start time, within one market opening period.")
@@ -1849,7 +1882,7 @@ private struct MarketAlertSheet: View {
                         .foregroundStyle(AppColors.secondaryText)
                 }
             } else if alertHours?.ranges.isEmpty == true {
-                Text("This market is closed today. Alerts are available during market hours.")
+                Text("No upcoming alert times remain today. Choose another time when the market is open.")
                     .foregroundStyle(AppColors.secondaryText)
             } else if details.statuses[market.id] == nil && market.resolvedPlaceID != nil {
                 ProgressView("Loading market hours…")
@@ -1858,11 +1891,7 @@ private struct MarketAlertSheet: View {
                     .foregroundStyle(AppColors.secondaryText)
             }
             Spacer(minLength: 8)
-            actionButton("Set Alert") {
-                guard canSave else { return }
-                MarketAlertWindow(marketName: market.name, fromMinutes: fromMinutes, toMinutes: toMinutes, placeID: market.resolvedPlaceID).save()
-                isSaved = true
-            }
+            actionButton("Set Alert") { saveAlert() }
             .disabled(!canSave)
             .opacity(canSave ? 1 : 0.45)
         }
@@ -1912,13 +1941,36 @@ private struct MarketAlertSheet: View {
             .frame(height: 208, alignment: .bottom)
             .accessibilityHidden(true)
 
-            Text("Alert Set")
+            Text("Alert Saved")
                 .font(.system(size: 24, weight: .semibold))
                 .padding(.top, 32)
-            Text("Notification set from \(MarketCrowdSnapshot.timeLabel(fromMinutes)) to \(MarketCrowdSnapshot.timeLabel(toMinutes))")
+            Text("One-time alert from \(MarketCrowdSnapshot.timeLabel(fromMinutes)) to \(MarketCrowdSnapshot.timeLabel(toMinutes))")
                 .font(.system(size: 16, weight: .medium))
                 .multilineTextAlignment(.center)
                 .padding(.top, 16)
+            Text(pushNotifications.setupMessage(for: market.resolvedPlaceID))
+                .font(.system(size: 14))
+                .foregroundStyle(AppColors.secondaryText)
+                .multilineTextAlignment(.center)
+                .padding(.top, 16)
+            if let placeID = market.resolvedPlaceID,
+               pushNotifications.authorizationStatus == .authorized || pushNotifications.authorizationStatus == .provisional {
+                Button("Send Demo Preview") {
+                    Task { await pushNotifications.sendDemoPreview(placeID: placeID, marketName: market.name) }
+                }
+                .padding(.top, 12)
+            }
+            if let message = pushNotifications.previewMessage {
+                Text(message)
+                    .font(.system(size: 13))
+                    .foregroundStyle(AppColors.secondaryText)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 8)
+            }
+            if pushNotifications.authorizationStatus == .denied {
+                Button("Open Notification Settings") { pushNotifications.openSettings() }
+                    .padding(.top, 12)
+            }
             Spacer(minLength: 32)
             actionButton("Done") { dismiss() }
         }
@@ -1942,16 +1994,20 @@ private struct MarketAlertSheet: View {
 private struct MarketTimeWheel: View {
     @Binding var minutesSinceMidnight: Int
     let label: String
-    let allowedHours: [Int]
+    let allowedMinutes: [Int]
 
-    private var availablePeriods: [Int] {
-        Array(Set(allowedHours.map { $0 / 12 })).sorted()
+    private var allowedHours: [Int] { Array(Set(allowedMinutes.map { $0 / 60 })).sorted() }
+    private var availablePeriods: [Int] { Array(Set(allowedHours.map { $0 / 12 })).sorted() }
+    private var availableHours: [Int] {
+        allowedHours.filter { $0 / 12 == minutesSinceMidnight / 720 }.map { $0 % 12 == 0 ? 12 : $0 % 12 }
+    }
+    private var availableMinutes: [Int] {
+        allowedMinutes.filter { $0 / 60 == minutesSinceMidnight / 60 }.map { $0 % 60 }
     }
 
-    private var availableHours: [Int] {
-        allowedHours.filter { $0 / 12 == minutesSinceMidnight / 720 }.map {
-            $0 % 12 == 0 ? 12 : $0 % 12
-        }
+    private func select(_ requested: Int, among values: [Int]) {
+        guard let closest = values.min(by: { abs($0 - requested) < abs($1 - requested) }) else { return }
+        minutesSinceMidnight = closest
     }
 
     private var hour: Binding<Int> {
@@ -1959,22 +2015,23 @@ private struct MarketTimeWheel: View {
             let value = (minutesSinceMidnight / 60) % 12
             return value == 0 ? 12 : value
         }, set: { value in
-            minutesSinceMidnight = (minutesSinceMidnight / 720) * 720 + (value % 12) * 60 + minutesSinceMidnight % 60
+            let absoluteHour = (minutesSinceMidnight / 720) * 12 + value % 12
+            select(absoluteHour * 60 + minutesSinceMidnight % 60,
+                   among: allowedMinutes.filter { $0 / 60 == absoluteHour })
         })
     }
 
     private var minute: Binding<Int> {
         Binding(get: { minutesSinceMidnight % 60 }, set: { value in
-            minutesSinceMidnight = (minutesSinceMidnight / 60) * 60 + value
+            let requested = (minutesSinceMidnight / 60) * 60 + value
+            if allowedMinutes.contains(requested) { minutesSinceMidnight = requested }
         })
     }
 
     private var period: Binding<Int> {
         Binding(get: { minutesSinceMidnight / 720 }, set: { value in
-            let requestedHour = value * 12 + (minutesSinceMidnight / 60) % 12
-            let hours = allowedHours.filter { $0 / 12 == value }
-            guard let closest = hours.min(by: { abs($0 - requestedHour) < abs($1 - requestedHour) }) else { return }
-            minutesSinceMidnight = closest * 60 + minutesSinceMidnight % 60
+            let requested = value * 720 + minutesSinceMidnight % 720
+            select(requested, among: allowedMinutes.filter { $0 / 720 == value })
         })
     }
 
@@ -1986,9 +2043,10 @@ private struct MarketTimeWheel: View {
             )
             .id(availableHours)
             MarketTimeColumn(
-                values: Array(0..<60), selection: minute, label: "\(label) minute",
+                values: availableMinutes, selection: minute, label: "\(label) minute",
                 display: { String(format: "%02d", $0) }
             )
+            .id(availableMinutes)
             MarketTimeColumn(
                 values: availablePeriods, selection: period, label: "\(label) AM or PM",
                 display: { $0 == 0 ? "AM" : "PM" }

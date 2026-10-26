@@ -18,6 +18,8 @@
 		A10000000000000000000011 /* MarketDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* MarketDiscovery.swift */; };
 		A10000000000000000000012 /* MarketCrowdData.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* MarketCrowdData.swift */; };
 		A10000000000000000000013 /* MarketDescriptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* MarketDescriptions.swift */; };
+		A10000000000000000000014 /* MarketPushNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* MarketPushNotifications.swift */; };
+		A10000000000000000000015 /* DemoCrowdNotificationPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* DemoCrowdNotificationPlan.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +36,8 @@
 		A20000000000000000000011 /* MarketDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketDiscovery.swift; sourceTree = "<group>"; };
 		A20000000000000000000012 /* MarketCrowdData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketCrowdData.swift; sourceTree = "<group>"; };
 		A20000000000000000000013 /* MarketDescriptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketDescriptions.swift; sourceTree = "<group>"; };
+		A20000000000000000000014 /* MarketPushNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketPushNotifications.swift; sourceTree = "<group>"; };
+		A20000000000000000000015 /* DemoCrowdNotificationPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoCrowdNotificationPlan.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -87,6 +91,7 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000001 /* CrowdStatusApp.swift */,
+				A20000000000000000000014 /* MarketPushNotifications.swift */,
 				A20000000000000000000005 /* AppRootView.swift */,
 			);
 			path = App;
@@ -117,6 +122,7 @@
 				A20000000000000000000010 /* LowCrowdNotification.swift */,
 				A20000000000000000000011 /* MarketDiscovery.swift */,
 				A20000000000000000000012 /* MarketCrowdData.swift */,
+				A20000000000000000000015 /* DemoCrowdNotificationPlan.swift */,
 				A20000000000000000000013 /* MarketDescriptions.swift */,
 			);
 			path = Home;
@@ -191,12 +197,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000001 /* CrowdStatusApp.swift in Sources */,
+				A10000000000000000000014 /* MarketPushNotifications.swift in Sources */,
 				A10000000000000000000002 /* HomeView.swift in Sources */,
 				A10000000000000000000006 /* MarketOpeningHours.swift in Sources */,
 				A10000000000000000000007 /* MarketAddresses.swift in Sources */,
 				A10000000000000000000008 /* LowCrowdNotification.swift in Sources */,
 				A10000000000000000000011 /* MarketDiscovery.swift in Sources */,
 				A10000000000000000000012 /* MarketCrowdData.swift in Sources */,
+				A10000000000000000000015 /* DemoCrowdNotificationPlan.swift in Sources */,
 				A10000000000000000000013 /* MarketDescriptions.swift in Sources */,
 				A10000000000000000000004 /* AppRootView.swift in Sources */,
 				A10000000000000000000005 /* AppTheme.swift in Sources */,

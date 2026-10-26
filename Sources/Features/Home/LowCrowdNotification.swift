@@ -70,3 +70,83 @@ struct LowCrowdNotification: Codable, Identifiable {
         defaults.set(confirmationsData, forKey: storageKey)
     }
 }
+
+// Navigation metadata carried by an actual provider's APNs alert payload.
+struct MarketPushRoute: Identifiable, Hashable {
+    let placeID: String
+    let marketName: String
+    var id: String { placeID }
+
+    init?(userInfo: [AnyHashable: Any]) {
+        guard let placeID = userInfo["placeID"] as? String,
+              let marketName = userInfo["marketName"] as? String else { return nil }
+        let id = placeID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = marketName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty, !name.isEmpty else { return nil }
+        self.placeID = id
+        self.marketName = name
+    }
+}
+
+struct MarketAlertWindow: Codable {
+    let marketName: String
+    let fromMinutes: Int
+    let toMinutes: Int
+    var placeID: String? = nil
+    var savedAt: Date? = Date()
+
+    var notificationID: String {
+        "\(placeID ?? marketName)|\(fromMinutes)|\(toMinutes)|\(savedAt?.timeIntervalSince1970 ?? 0)"
+    }
+
+    /// Resolve once from the save timestamp, never from the next app launch.
+    func oneTimeInterval(timeZoneID: String) -> DateInterval? {
+        guard let savedAt, (0..<1440).contains(fromMinutes), (1...1440).contains(toMinutes),
+              fromMinutes < toMinutes else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: timeZoneID) ?? TimeZone(identifier: "Asia/Kolkata")!
+        func interval(on day: Date) -> DateInterval? {
+            guard let start = calendar.date(bySettingHour: fromMinutes / 60, minute: fromMinutes % 60, second: 0, of: day) else { return nil }
+            let end: Date?
+            if toMinutes == 1440 { end = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: day)) }
+            else { end = calendar.date(bySettingHour: toMinutes / 60, minute: toMinutes % 60, second: 0, of: day) }
+            guard let end, start < end else { return nil }
+            return DateInterval(start: start, end: end)
+        }
+        guard let today = interval(on: savedAt) else { return nil }
+        return savedAt < today.end ? today : nil
+    }
+
+    func save() {
+        let key = "marketAlertWindows"
+        let existing = UserDefaults.standard.data(forKey: key)
+        var windows = existing.flatMap { try? JSONDecoder().decode([Self].self, from: $0) } ?? []
+        windows.removeAll { record in
+            if let placeID {
+                return record.placeID == placeID || (record.placeID == nil && record.marketName == marketName)
+            }
+            return record.placeID == nil && record.marketName == marketName
+        }
+        windows.append(self)
+        if let data = try? JSONEncoder().encode(windows) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+    }
+
+    static func allSaved() -> [Self] {
+        guard let data = UserDefaults.standard.data(forKey: "marketAlertWindows"),
+              var windows = try? JSONDecoder().decode([Self].self, from: data) else { return [] }
+        // Freeze legacy undated records once so reopening cannot roll them forward.
+        if windows.contains(where: { $0.savedAt == nil }) {
+            for index in windows.indices where windows[index].savedAt == nil { windows[index].savedAt = Date() }
+            if let encoded = try? JSONEncoder().encode(windows) { UserDefaults.standard.set(encoded, forKey: "marketAlertWindows") }
+        }
+        return windows
+    }
+
+    static func saved(for marketName: String, placeID: String? = nil) -> Self? {
+        let windows = allSaved()
+        if let placeID, let saved = windows.first(where: { $0.placeID == placeID }) { return saved }
+        return windows.first { $0.placeID == nil && $0.marketName == marketName }
+    }
+}

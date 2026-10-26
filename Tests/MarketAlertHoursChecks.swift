@@ -51,6 +51,25 @@ struct MarketAlertHoursChecks {
         precondition(closed.hours.isEmpty)
         let unknown = MarketOpeningStatus(isOpen: nil, nextOpening: nil, nextClosing: nil, expiresAt: now)
         precondition(MarketAlertHours(status: unknown, now: now) == nil)
+        let lunchtime = ISO8601DateFormatter().date(from: "2026-10-12T07:00:00Z")! // 12:30pm in India
+        let remaining = daytime.remaining(after: lunchtime, timeZoneID: "Asia/Kolkata")
+        precondition(remaining.startMinutes.first == 751)
+        precondition(!remaining.startMinutes.contains(600) && !remaining.startMinutes.contains(660))
+        precondition(!remaining.startMinutes.contains(750))
+        precondition(remaining.startMinutes.allSatisfy { $0 > 750 && $0 < 1260 })
+        precondition(!remaining.permits(from: 600, to: 660))
+        precondition(remaining.permits(from: 751, to: 810))
+        precondition(remaining.endMinutes(after: 751).first == 752)
+        precondition(remaining.endMinutes(after: 1260).isEmpty)
+        precondition(remaining.endMinutes(after: 700).isEmpty)
+        let breakRemaining = split.remaining(after: lunchtime, timeZoneID: "Asia/Kolkata")
+        precondition(breakRemaining.startMinutes.first == 840)
+        precondition(!breakRemaining.startMinutes.contains(780))
+        let late = ISO8601DateFormatter().date(from: "2026-10-12T16:00:00Z")! // 9:30pm in India
+        precondition(daytime.remaining(after: late, timeZoneID: "Asia/Kolkata").ranges.isEmpty)
+        precondition(daytime.remaining(after: lunchtime, timeZoneID: "UTC").startMinutes.first == 600)
+        let laterMinute = lunchtime.addingTimeInterval(60)
+        precondition(!daytime.remaining(after: laterMinute, timeZoneID: "Asia/Kolkata").permits(from: 751, to: 810))
         print("Market alert hours checks passed")
     }
 }

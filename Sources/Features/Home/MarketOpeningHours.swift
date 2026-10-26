@@ -39,6 +39,27 @@ struct MarketAlertHours: Equatable {
         ranges = intervals.map { minute($0.start)...minute($0.end) }
     }
 
+    private init(ranges: [ClosedRange<Int>]) { self.ranges = ranges }
+
+    func remaining(after now: Date, timeZoneID: String) -> Self {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: timeZoneID) ?? TimeZone(identifier: "Asia/Kolkata")!
+        // Wheel selections have minute precision, so the current minute is already
+        // underway. Start at the next whole minute and require room for an end.
+        let earliest = calendar.component(.hour, from: now) * 60 + calendar.component(.minute, from: now) + 1
+        return Self(ranges: ranges.compactMap { range in
+            let start = max(range.lowerBound, earliest)
+            return start < range.upperBound ? start...range.upperBound : nil
+        })
+    }
+
+    var startMinutes: [Int] { ranges.flatMap { Array($0.lowerBound..<$0.upperBound) } }
+
+    func endMinutes(after start: Int) -> [Int] {
+        guard let range = ranges.first(where: { $0.contains(start) }), start < range.upperBound else { return [] }
+        return Array((start + 1)...range.upperBound)
+    }
+
     var hours: [Int] {
         Array(Set(ranges.flatMap { Array(($0.lowerBound / 60)...($0.upperBound / 60)) })).sorted()
     }
