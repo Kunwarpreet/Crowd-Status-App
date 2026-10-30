@@ -1985,11 +1985,13 @@ private struct MarketAlertSheet: View {
                 Button("Send Demo Preview") {
                     Task { await pushNotifications.sendDemoPreview(placeID: placeID, marketName: market.name) }
                 }
+                .disabled(pushNotifications.isPreviewCountdownActive)
                 .padding(.top, 12)
             }
             if let message = pushNotifications.previewMessage {
                 Text(message)
                     .font(.system(size: 13))
+                    .monospacedDigit()
                     .foregroundStyle(AppColors.secondaryText)
                     .multilineTextAlignment(.center)
                     .padding(.top, 8)

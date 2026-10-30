@@ -15,6 +15,7 @@ final class MarketPushNotifications: ObservableObject {
     @Published private(set) var scheduledDemoCounts: [String: Int] = [:]
     @Published private(set) var demoSchedulingError: String?
     @Published private(set) var previewMessage: String?
+    @Published private(set) var isPreviewCountdownActive = false
     private var schedulingTask: Task<Void, Never>?
 
     private var remotePushEnabled: Bool {
@@ -205,6 +206,9 @@ final class MarketPushNotifications: ObservableObject {
     }
 
     func sendDemoPreview(placeID: String, marketName: String) async {
+        guard !isPreviewCountdownActive else { return }
+        isPreviewCountdownActive = true
+        defer { isPreviewCountdownActive = false }
         await requestPermissionForSavedAlert()
         guard [.authorized, .provisional, .ephemeral].contains(authorizationStatus) else { return }
         let content = UNMutableNotificationContent()
@@ -214,10 +218,26 @@ final class MarketPushNotifications: ObservableObject {
         content.threadIdentifier = placeID
         content.userInfo = ["placeID": placeID, "marketName": marketName, "demo": true]
         do {
+            let deadline = Date().addingTimeInterval(5)
             try await UNUserNotificationCenter.current().add(.init(
                 identifier: "demo-preview|\(placeID)", content: content,
                 trigger: UNTimeIntervalNotificationTrigger(timeInterval: 5, repeats: false)))
-            previewMessage = "Demo preview scheduled. It will appear in about 5 seconds."
+            // Use the deadline so a suspended app catches up instead of resuming
+            // a stale count. Finishing the timer does not confirm iOS delivery.
+            while true {
+                let remaining = deadline.timeIntervalSinceNow
+                guard remaining > 0 else { break }
+                let seconds = Int(ceil(remaining))
+                let unit = seconds == 1 ? "second" : "seconds"
+                previewMessage = "Demo preview scheduled.\nAppearing in \(seconds) \(unit)."
+                do {
+                    try await Task.sleep(for: .seconds(min(1, remaining)))
+                } catch {
+                    previewMessage = "Demo preview scheduled."
+                    return
+                }
+            }
+            previewMessage = "Preview countdown complete."
         } catch {
             previewMessage = "Could not schedule the demo preview. Please check notification settings."
         }

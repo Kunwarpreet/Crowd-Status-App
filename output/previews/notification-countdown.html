@@ -1,0 +1,65 @@
+<div id="crowd-countdown-preview" class="viz-dotted-background">
+  <section class="alert-sheet" aria-label="Alert saved countdown preview">
+    <div class="success-art" aria-hidden="true">
+      <i data-lucide="sparkles" class="sparkle"></i>
+      <div class="success-circle"><i data-lucide="check"></i></div>
+    </div>
+    <h2>Alert Saved</h2>
+    <p class="window">One-time alert from 12:59pm to 7pm</p>
+    <p class="description">This is a one-time alert window. No simulated low-crowd notifications are currently scheduled within it. It will not repeat. Send a demo preview to test delivery.</p>
+    <button type="button" class="send cursor-interaction">Send Demo Preview</button>
+    <p class="status" role="status" aria-live="polite">Tap Send Demo Preview to start.</p>
+    <button type="button" class="done cursor-interaction">Done</button>
+  </section>
+</div>
+<style>
+  #crowd-countdown-preview {padding:24px 12px; box-sizing:border-box; color-scheme:light dark; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; --cs-blue:light-dark(#265fe9,#527fff); --cs-text:light-dark(#111111,#f5f5f7); --cs-secondary:light-dark(#818181,#b0b0b6); --cs-surface:light-dark(#ffffff,#1c1c1e);}
+  #crowd-countdown-preview .alert-sheet {box-sizing:border-box; max-width:420px; margin:auto; background:var(--cs-surface); color:var(--cs-text); border-radius:36px; padding:30px 24px 28px; text-align:center;}
+  #crowd-countdown-preview .success-art {position:relative; height:155px; display:flex; justify-content:center; align-items:center; margin-bottom:18px; color:var(--cs-blue);}
+  #crowd-countdown-preview .success-circle {height:104px; width:104px; border-radius:50%; background:var(--cs-blue); color:#fff; display:grid; place-items:center;}
+  #crowd-countdown-preview .success-circle svg {width:62px; height:62px; stroke-width:3;}
+  #crowd-countdown-preview .sparkle {position:absolute; top:0; left:24%; opacity:.5; width:32px; height:32px;}
+  #crowd-countdown-preview h2 {font-size:25px; font-weight:600; line-height:1.2; margin:0 0 20px;}
+  #crowd-countdown-preview p {margin:0;}
+  #crowd-countdown-preview .window {font-size:17px; line-height:1.4; font-weight:500; margin-bottom:16px;}
+  #crowd-countdown-preview .description {font-size:16px; line-height:1.4; color:var(--cs-secondary); margin-bottom:22px;}
+  #crowd-countdown-preview button {font:inherit; border:0;}
+  #crowd-countdown-preview .send {padding:10px 4px; background:transparent; color:var(--cs-text); font-size:19px; min-height:44px;}
+  #crowd-countdown-preview .send:disabled {opacity:.55;}
+  #crowd-countdown-preview .status {font-size:15px; line-height:1.4; color:var(--cs-secondary); min-height:44px; margin:2px auto 36px; max-width:300px; font-variant-numeric:tabular-nums;}
+  #crowd-countdown-preview .status strong {font-weight:600; color:var(--cs-blue);}
+  #crowd-countdown-preview .done {display:block; width:100%; min-height:54px; border-radius:30px; background:var(--cs-blue); color:#fff; font-size:19px; padding:12px;}
+  @media(max-width:360px) {#crowd-countdown-preview .alert-sheet {padding:24px 18px;} #crowd-countdown-preview .window {font-size:16px;}}
+</style>
+<script>
+(() => {
+  const root = document.getElementById('crowd-countdown-preview');
+  const send = root.querySelector('.send');
+  const done = root.querySelector('.done');
+  const status = root.querySelector('.status');
+  let timer;
+  const reset = () => {
+    clearInterval(timer);
+    send.disabled = false;
+    status.textContent = 'Tap Send Demo Preview to start.';
+  };
+  send.addEventListener('click', () => {
+    clearInterval(timer);
+    send.disabled = true;
+    const deadline = Date.now() + 5000;
+    const tick = () => {
+      const seconds = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      if (seconds > 0) {
+        status.innerHTML = 'Demo preview scheduled.<br>Appearing in <strong>' + seconds + (seconds === 1 ? ' second' : ' seconds') + '</strong>.';
+      } else {
+        clearInterval(timer);
+        status.textContent = 'Preview countdown complete.';
+        send.disabled = false;
+      }
+    };
+    tick();
+    timer = setInterval(tick, 100);
+  });
+  done.addEventListener('click', reset);
+})();
+</script>
